@@ -1,0 +1,186 @@
+{
+  "name": "my-project-github-vcs",
+  "tracker": {
+    "kind": "azure-devops",
+    "organization": "my-org",
+    "project": "My Project",
+    "baseUrl": "https://dev.azure.com"
+  },
+  "vcs": {
+    "kind": "github",
+    "owner": "my-org",
+    "repo": "my-repo",
+    "branch": "master"
+  },
+  "period": {
+    "from": "2025-09-01T00:00:00.000Z",
+    "to": "2026-09-01T00:00:00.000Z"
+  },
+  "windowDays": 90,
+  "versions": {
+    "tDet": "v2",
+    "env": "v2",
+    "imp": "v2",
+    "module": "v2",
+    "completeness": "v1",
+    "cohort": "v2"
+  },
+  "env": {
+    "prodFieldValues": [
+      "Production",
+      "Prod",
+      "Live"
+    ],
+    "prodTags": [
+      "Prod",
+      "Production",
+      "Customer"
+    ],
+    "deliveryTags": [
+      "Hotfix",
+      "Patch"
+    ],
+    "prodCreators": [
+      "support"
+    ],
+    "prodKeywords": [],
+    "closedWorld": true
+  },
+  "importance": {
+    "criticalValues": [
+      "1"
+    ],
+    "highValues": [
+      "2"
+    ],
+    "mediumValues": [
+      "3"
+    ],
+    "lowValues": [
+      "4"
+    ],
+    "defaultValue": "2"
+  },
+  "resolution": {
+    "rejected": [
+      "Not a defect",
+      "By design",
+      "As Designed"
+    ],
+    "duplicate": [
+      "Duplicate",
+      "Copied to Backlog"
+    ],
+    "noRepro": [
+      "Cannot Reproduce",
+      "Obsolete"
+    ],
+    "fixed": [
+      "Fixed",
+      "Done"
+    ]
+  },
+  "fields": [
+    {
+      "field": "title",
+      "defaultValue": null,
+      "mandatory": true
+    },
+    {
+      "field": "reproSteps",
+      "defaultValue": null,
+      "mandatory": true
+    },
+    {
+      "field": "severity",
+      "defaultValue": null,
+      "mandatory": true
+    },
+    {
+      "field": "priority",
+      "defaultValue": "2",
+      "mandatory": true
+    },
+    {
+      "field": "component",
+      "defaultValue": null,
+      "mandatory": true
+    },
+    {
+      "field": "environmentField",
+      "defaultValue": null,
+      "mandatory": true
+    },
+    {
+      "field": "versionDetected",
+      "defaultValue": null,
+      "mandatory": true
+    },
+    {
+      "field": "rootCause",
+      "defaultValue": null,
+      "mandatory": false
+    },
+    {
+      "field": "resolution",
+      "defaultValue": null,
+      "mandatory": false
+    },
+    {
+      "field": "assignedTo",
+      "defaultValue": null,
+      "mandatory": false
+    }
+  ],
+  "thresholds": {
+    "completenessMin": 0.95,
+    "badReportShareMax": 0.2,
+    "reopenRateMax": 0.15,
+    "defectiveFixMax": 0.15,
+    "flakyRateMax": 0.05,
+    "tasFailureShareMax": 0.05,
+    "dominanceMax": 0.85,
+    "causeFillMin": 0.7,
+    "regressionCyclesMax": 4,
+    "minCohortSize": 15,
+    "ddpTarget": null
+  },
+  "fixTargetDays": {
+    "critical": 3,
+    "high": 10,
+    "medium": 30,
+    "low": 90
+  },
+  "releases": [
+    {
+      "version": "1.45.0",
+      "releasedAt": "2026-01-15T00:00:00.000Z",
+      "klocChanged": 4.2,
+      "storiesDelivered": 18
+    },
+    {
+      "version": "1.46.0",
+      "releasedAt": "2026-02-19T00:00:00.000Z",
+      "klocChanged": 3.1,
+      "storiesDelivered": 14
+    }
+  ],
+  "sprints": [
+    {
+      "name": "Sprint 101",
+      "startsAt": "2026-01-05T00:00:00.000Z",
+      "endsAt": "2026-01-18T00:00:00.000Z",
+      "releaseVersion": "1.45.0"
+    }
+  ],
+  "manualInputs": {
+    "riskRegisterPath": "config/risk-register.json",
+    "gateDecisionPath": "config/gate-decision.json",
+    "costOfQualityPath": "config/cost-model.json",
+    "slaAvailability": 0.995
+  },
+  "ci": {
+    "kind": "azure-pipelines",
+    "runSummaryDir": "qa-runs"
+  }
+}

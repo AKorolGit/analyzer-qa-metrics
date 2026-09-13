@@ -1,0 +1,24 @@
+{
+  "release": "1.47.0",
+  "decidedAt": "2026-09-05T15:30:00.000Z",
+  "decision": "ship-with-accepted-risk",
+  "residualRisks": [
+    {
+      "id": "R-02",
+      "description": "Peak-load behaviour of the trading session is unverified this release",
+      "level": "high",
+      "workaround": "Throttle enabled at the gateway; support on standby for the first trading session",
+      "acceptedBy": "Product Owner",
+      "acceptedAt": "2026-09-05T15:25:00.000Z"
+    },
+    {
+      "id": "R-03",
+      "description": "Rounding mismatch on quotes above 100k, off by one cent",
+      "level": "medium",
+      "workaround": "Finance reconciles manually for the affected bracket",
+      "acceptedBy": "Product Owner",
+      "acceptedAt": "2026-09-05T15:28:00.000Z"
+    }
+  ],
+  "testCompletionReportUrl": "https://dev.azure.com/org/proj/_wiki/tcr-1.47.0"
+}

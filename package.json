@@ -1,0 +1,30 @@
+{
+  "name": "qa-metrics-analyzer",
+  "version": "0.1.0",
+  "private": true,
+  "type": "module",
+  "description": "Risk-based QA metrics collector and diagnostic report generator (ISTQB TM/ITP/TAE aligned). Tracker: Azure DevOps | Jira. VCS: GitHub or local git.",
+  "scripts": {
+    "typecheck": "tsc --noEmit",
+
+    "check": "tsx --env-file=.env src/cli/index.ts check",
+    "fields": "tsx --env-file=.env src/cli/index.ts fields",
+    "scope": "tsx --env-file=.env src/cli/index.ts scope",
+    "doctor": "tsx --env-file=.env src/cli/index.ts doctor",
+
+    "collect": "tsx --env-file=.env src/cli/index.ts collect",
+    "report": "tsx --env-file=.env src/cli/index.ts report",
+    "analyze": "tsx --env-file=.env src/cli/index.ts analyze",
+
+    "runs": "tsx --env-file=.env src/cli/index.ts runs",
+    "full": "npm run check && npm run collect && npm run report",
+
+    "demo": "tsx src/cli/index.ts run --profile config/profile.demo.json",
+    "releases": "tsx --env-file=.env src/cli/index.ts releases"
+  },
+  "dependencies": {
+    "tsx": "^4.19.2",
+    "typescript": "^5.7.2",
+    "@types/node": "^22.10.2"
+  }
+}

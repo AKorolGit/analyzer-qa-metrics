@@ -1,0 +1,48 @@
+{
+  "release": "1.47.0",
+  "reviewedAt": "2026-09-01T10:00:00.000Z",
+  "participants": ["QA Lead", "Product Owner", "Tech Lead", "Support Lead"],
+  "risks": [
+    {
+      "id": "R-01",
+      "description": "Order to invoice reconciliation drifts silently between the platform and the accounting system",
+      "likelihood": 3,
+      "impact": 5,
+      "tests": ["e2e/reconciliation.spec.ts", "TC-441"],
+      "outcome": "passed",
+      "owner": "Tech Lead"
+    },
+    {
+      "id": "R-02",
+      "description": "Trading session rejects orders under peak load",
+      "likelihood": 4,
+      "impact": 5,
+      "tests": [],
+      "outcome": "untested",
+      "owner": "QA Lead"
+    },
+    {
+      "id": "R-03",
+      "description": "Price rounding differs between the quote screen and the invoice",
+      "likelihood": 3,
+      "impact": 4,
+      "tests": ["e2e/pricing.spec.ts"],
+      "outcome": "failed",
+      "owner": "Product Owner"
+    },
+    {
+      "id": "R-04",
+      "description": "Notification emails delayed beyond the SLA window",
+      "likelihood": 2,
+      "impact": 3,
+      "tests": ["api/notifications.spec.ts"],
+      "outcome": "passed",
+      "owner": "Tech Lead"
+    }
+  ],
+  "requirements": [
+    { "id": "US-481", "title": "Buyer can split an order across suppliers", "critical": true, "tests": ["e2e/split-order.spec.ts"], "outcome": "passed" },
+    { "id": "US-482", "title": "Invoice PDF matches the confirmed order", "critical": true, "tests": ["e2e/invoice.spec.ts"], "outcome": "failed" },
+    { "id": "US-483", "title": "Admin can export the audit log", "critical": false, "tests": [], "outcome": "untested" }
+  ]
+}

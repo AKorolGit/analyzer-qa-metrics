@@ -1,0 +1,9 @@
+{
+  "period": { "from": "2026-06-01T00:00:00.000Z", "to": "2026-09-01T00:00:00.000Z" },
+  "currency": "EUR",
+  "prevention": 18000,
+  "appraisal": 62000,
+  "internalFailure": 41000,
+  "externalFailure": 96000,
+  "estimated": true
+}
