@@ -1,0 +1,419 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<title>Configuration — qa-metrics</title>
+<link rel="stylesheet" href="/app.css">
+</head>
+<body>
+<header>
+  <h1>qa-metrics</h1>
+  <nav>
+    <a href="/">Configuration</a>
+    <a href="/run">Run &amp; reports</a>
+    <a href="/guide">Guide</a>
+  </nav>
+  <span class="path" id="profilePath"></span>
+</header>
+
+<main>
+  <div class="row" style="margin-bottom:16px">
+    <button class="primary" id="save">Save profile</button>
+    <button id="reload">Reload from disk</button>
+    <button id="toggleJson">Show raw JSON</button>
+    <span class="spacer"></span>
+    <span class="status" id="status"></span>
+  </div>
+
+  <section class="card" id="rawCard" style="display:none">
+    <h2>Raw JSON</h2>
+    <textarea id="raw" rows="26"></textarea>
+    <p class="hint" style="grid-column:1">Editing here replaces everything. Switch back to the form to see the result.</p>
+  </section>
+
+  <div id="form"></div>
+</main>
+
+<script type="module">
+const $ = (sel) => document.querySelector(sel);
+let profile = {};
+
+/* ---------- nested get/set so a spec can address profile.env.prodTags ---- */
+const get = (obj, path) => path.split('.').reduce((o, k) => (o == null ? undefined : o[k]), obj);
+function set(obj, path, value) {
+  const keys = path.split('.');
+  const last = keys.pop();
+  let cur = obj;
+  for (const k of keys) { if (cur[k] == null || typeof cur[k] !== 'object') cur[k] = {}; cur = cur[k]; }
+  if (value === undefined || value === '') delete cur[last]; else cur[last] = value;
+}
+
+/* ---------- field renderers ------------------------------------------- */
+const el = (tag, props = {}, kids = []) => {
+  const n = document.createElement(tag);
+  Object.assign(n, props);
+  for (const k of kids) n.append(k);
+  return n;
+};
+
+function info(text) {
+  const span = el('span', { className: 'info', textContent: 'i' });
+  span.append(el('span', { className: 'tip', innerHTML: text }));
+  return span;
+}
+
+function row(spec) {
+  const label = el('label', { textContent: spec.label });
+  if (spec.info) label.append(info(spec.info));
+  let input;
+
+  if (spec.type === 'select') {
+    input = el('select');
+    for (const opt of spec.options) {
+      const value = typeof opt === 'string' ? opt : opt.value;
+      const text = typeof opt === 'string' ? opt : opt.label;
+      input.append(el('option', { value, textContent: text }));
+    }
+    input.value = get(profile, spec.path) ?? spec.default ?? '';
+    input.onchange = () => set(profile, spec.path, input.value);
+  } else if (spec.type === 'bool') {
+    input = el('input', { type: 'checkbox', checked: get(profile, spec.path) === true });
+    input.style.width = 'auto';
+    input.onchange = () => set(profile, spec.path, input.checked);
+  } else if (spec.type === 'list') {
+    input = el('input', { type: 'text', value: (get(profile, spec.path) ?? []).join(', ') });
+    input.placeholder = spec.placeholder ?? 'comma separated';
+    input.onchange = () => {
+      const parts = input.value.split(',').map((s) => s.trim()).filter((s) => s !== '');
+      set(profile, spec.path, parts);
+      if (parts.length === 0) set(profile, spec.path, []);
+    };
+  } else if (spec.type === 'date') {
+    const raw = get(profile, spec.path);
+    input = el('input', { type: 'date', value: raw ? String(raw).slice(0, 10) : '' });
+    input.onchange = () => set(profile, spec.path, input.value ? new Date(input.value + 'T00:00:00Z').toISOString() : undefined);
+  } else if (spec.type === 'number') {
+    input = el('input', { type: 'number', step: spec.step ?? 'any', value: get(profile, spec.path) ?? '' });
+    input.onchange = () => set(profile, spec.path, input.value === '' ? undefined : Number(input.value));
+  } else if (spec.type === 'textarea') {
+    input = el('textarea', { rows: spec.rows ?? 4, value: get(profile, spec.path) ?? '' });
+    input.onchange = () => set(profile, spec.path, input.value.trim() === '' ? undefined : input.value);
+  } else {
+    input = el('input', { type: 'text', value: get(profile, spec.path) ?? '' });
+    input.placeholder = spec.placeholder ?? '';
+    input.onchange = () => set(profile, spec.path, input.value.trim() === '' ? undefined : input.value.trim());
+  }
+  return [label, input, spec.hint ? el('p', { className: 'hint', textContent: spec.hint }) : null].filter(Boolean);
+}
+
+/** Repeatable object rows, e.g. releases or field policies. */
+function tableEditor(path, columns, blank) {
+  const wrap = el('div');
+  const draw = () => {
+    wrap.innerHTML = '';
+    const items = get(profile, path) ?? [];
+    const head = el('div', { className: 'fieldrow' });
+    for (const c of columns) head.append(el('label', { textContent: c.label }));
+    head.append(el('span'));
+    wrap.append(head);
+    items.forEach((item, i) => {
+      const line = el('div', { className: 'fieldrow' });
+      for (const c of columns) {
+        if (c.type === 'bool') {
+          const box = el('input', { type: 'checkbox', checked: item[c.key] === true });
+          box.style.width = 'auto';
+          box.onchange = () => { item[c.key] = box.checked; };
+          line.append(el('label', {}, [box]));
+        } else {
+          const inp = el('input', {
+            type: c.type === 'number' ? 'number' : 'text',
+            value: item[c.key] ?? '',
+            placeholder: c.placeholder ?? '',
+          });
+          inp.onchange = () => {
+            const v = inp.value.trim();
+            if (v === '') delete item[c.key];
+            else item[c.key] = c.type === 'number' ? Number(v) : v;
+          };
+          line.append(inp);
+        }
+      }
+      const del = el('button', { textContent: '×', title: 'remove' });
+      del.onclick = () => { items.splice(i, 1); draw(); };
+      line.append(del);
+      wrap.append(line);
+    });
+    const add = el('button', { textContent: '+ add row' });
+    add.onclick = () => {
+      const items2 = get(profile, path) ?? [];
+      items2.push({ ...blank });
+      set(profile, path, items2);
+      draw();
+    };
+    wrap.append(add);
+  };
+  draw();
+  return wrap;
+}
+
+function card(title, specs, extra) {
+  const grid = el('div', { className: 'grid' });
+  for (const s of specs) for (const node of row(s)) grid.append(node);
+  const section = el('section', { className: 'card' }, [el('h2', { textContent: title }), grid]);
+  if (extra) section.append(extra);
+  return section;
+}
+
+/* ---------- the profile schema, rendered as sections ------------------- */
+function render() {
+  const f = $('#form');
+  f.innerHTML = '';
+
+  f.append(card('Project', [
+    { label: 'Profile name', path: 'name', hint: 'Appears in the report header and in every run id.' },
+    { label: 'Period from', path: 'period.from', type: 'date' },
+    { label: 'Period to', path: 'period.to', type: 'date' },
+    { label: 'Observation window W (days)', path: 'windowDays', type: 'number',
+      info: '<b>What</b>How long after a release a defect still counts as a field defect for that release.<b>Typical</b>90 or 180 days. Shorter windows flatter the newest releases, because their window has not elapsed.' },
+  ]));
+
+  f.append(card('Tracker', [
+    { label: 'Kind', path: 'tracker.kind', type: 'select', options: ['azure-devops', 'jira', 'fixture'] },
+    { label: 'Base URL', path: 'tracker.baseUrl', placeholder: 'https://org.visualstudio.com',
+      info: '<b>What</b>The collection URL.<b>Note</b>On dev.azure.com the organisation is a path segment; on org.visualstudio.com it is already the subdomain, so leave Organization empty there.' },
+    { label: 'Organization', path: 'tracker.organization', placeholder: 'optional if baseUrl already names it' },
+    { label: 'Project', path: 'tracker.project' },
+    { label: 'Custom WIQL', path: 'tracker.wiql', type: 'textarea', rows: 4,
+      info: '<b>What</b>Overrides the default bug query.<b>Careful</b>The default already filters by work item type and created date; a custom query must do the same or the period stops meaning anything.' },
+    { label: 'Custom JQL', path: 'tracker.jql', type: 'textarea', rows: 3 },
+  ]));
+
+  f.append(card('Field mapping', [
+    { label: 'Severity', path: 'tracker.fieldOverrides.severity', placeholder: 'Microsoft.VSTS.Common.Severity' },
+    { label: 'Root cause', path: 'tracker.fieldOverrides.rootCause', placeholder: 'Custom.RootCause' },
+    { label: 'Environment', path: 'tracker.fieldOverrides.environment' },
+    { label: 'Repro steps', path: 'tracker.fieldOverrides.repro' },
+    { label: 'Version detected', path: 'tracker.fieldOverrides.versionDetected',
+      info: '<b>What</b>The version a defect was found in. Drives cohort attribution v1.<b>Careful</b>Many teams put a sprint name here rather than a version; both work, but only if the sprint maps to a release.' },
+    { label: 'Version corrected', path: 'tracker.fieldOverrides.versionCorrected',
+      info: '<b>What</b>The version a fix shipped in. Drives cohort attribution v3.' },
+    { label: 'Component', path: 'tracker.fieldOverrides.component' },
+  ], el('p', { className: 'hint', style: 'grid-column:1',
+    textContent: 'Reference names differ per instance. Run "fields" on the next page to see what this project actually has — an override naming a field that does not exist is reported as a config error, not silently ignored.' })));
+
+  f.append(card('Version control', [
+    { label: 'Kind', path: 'vcs.kind', type: 'select', options: ['local-git', 'github', 'none'] },
+    { label: 'Local clone path', path: 'vcs.path', placeholder: '/absolute/path/to/clone',
+      info: '<b>What</b>A full, non-shallow clone.<b>Why local</b>One git process instead of one HTTP call per commit, no rate limit, and the code never leaves your machine. It is also the only source that can support blame-based analysis later.' },
+    { label: 'Branch / ref', path: 'vcs.branch', placeholder: 'empty = all refs' },
+    { label: 'GitHub owner', path: 'vcs.owner' },
+    { label: 'GitHub repo', path: 'vcs.repo' },
+  ]));
+
+  f.append(card('CI', [
+    { label: 'Kind', path: 'ci.kind', type: 'select', options: ['none', 'azure-pipelines', 'json-file', 'fixture'] },
+    { label: 'Run summary directory', path: 'ci.runSummaryDir', placeholder: 'qa-runs',
+      info: '<b>What</b>Where the Playwright / Cypress reporters write their run summaries.<b>Why needed</b>No CI API can tell an automation failure from a product failure. Only the runner knows, and Q16 depends on that distinction.' },
+  ]));
+
+  f.append(card('Formula versions', [
+    { label: 'T_det', path: 'versions.tDet', type: 'select', options: [
+      { value: 'v1', label: 'v1 — earliest linked observation' },
+      { value: 'v2', label: 'v2 — created date' }] },
+    { label: 'Env', path: 'versions.env', type: 'select', options: [
+      { value: 'v1', label: 'v1 — environment field' },
+      { value: 'v2', label: 'v2 — tag or title prefix' },
+      { value: 'v3', label: 'v3 — reporter account' },
+      { value: 'v4', label: 'v4 — keywords in text' }],
+      info: '<b>What</b>How a production defect is recognised.<b>Order</b>Versions cascade: v2 also tries v1 first. Lower numbers are more reliable.<b>Impact</b>This decides DDP entirely.' },
+    { label: 'Importance', path: 'versions.imp', type: 'select', options: [
+      { value: 'v1', label: 'v1 — Severity (default)' },
+      { value: 'v2', label: 'v2 — Priority at first triage' },
+      { value: 'v3', label: 'v3 — Priority now' },
+      { value: 'v4', label: 'v4 — Severity if touched, else Priority' }],
+      info: '<b>What</b>Which field expresses how much a defect matters.<b>Choosing</b>Severity is the default and the ISTQB reading. Use Priority at triage where Severity sits on a tracker default nobody maintains. Prefer triage over "now" if priority gets lowered after fixes — otherwise history is rewritten in your favour.' },
+    { label: 'Module', path: 'versions.module', type: 'select', options: [
+      { value: 'v1', label: 'v1 — file path map' },
+      { value: 'v2', label: 'v2 — component, then area path' },
+      { value: 'v3', label: 'v3 — owning team' }] },
+    { label: 'Cohort', path: 'versions.cohort', type: 'select', options: [
+      { value: 'v1', label: 'v1 — version or sprint detected' },
+      { value: 'v2', label: 'v2 — dates only' },
+      { value: 'v3', label: 'v3 — version corrected' }],
+      info: '<b>What</b>Which release a defect is counted against.<b>Rule</b>A version is only accepted if a release in that cohort is declared below — otherwise there is no release date, so no observation window.' },
+    { label: 'Completeness', path: 'versions.completeness', type: 'select', options: [
+      { value: 'v1', label: 'v1 — changed from tracker default' },
+      { value: 'v2', label: 'v2 — differs from default' },
+      { value: 'v3', label: 'v3 — simply non-empty' }],
+      info: '<b>Careful</b>v3 on a field with a tracker default reports a false 100%. If your tracker pre-fills Priority or Severity, use v1.' },
+  ]));
+
+  f.append(card('Production markers', [
+    { label: 'Environment field values', path: 'env.prodFieldValues', type: 'list', placeholder: 'Production, Prod, Live' },
+    { label: 'Tags', path: 'env.prodTags', type: 'list', placeholder: 'Prod, Production' },
+    { label: 'Title prefixes', path: 'env.prodTitlePrefixes', type: 'list', placeholder: 'Prod, PROD',
+      info: '<b>What</b>A marker at the START of the title, e.g. "Prod. Cannot send invite".<b>Why only the start</b>Searching the whole text would read "could not reproduce on prod-like env" as a production defect.' },
+    { label: 'Title prefix tokens', path: 'env.titlePrefixTokens', type: 'number', hint: 'How many leading words may carry the marker. Default 2.' },
+    { label: 'Delivery tags to ignore', path: 'env.deliveryTags', type: 'list', placeholder: 'Hotfix, Patch',
+      info: '<b>Why</b>A Hotfix tag describes how the fix shipped, not where the defect was found. Reading it as detection would inflate the production count.' },
+    { label: 'Reporter accounts', path: 'env.prodCreators', type: 'list' },
+    { label: 'Keywords', path: 'env.prodKeywords', type: 'list', hint: 'Lowest reliability — a last resort.' },
+    { label: 'Closed-world assumption', path: 'env.closedWorld', type: 'bool',
+      info: '<b>What</b>Treat "no marker" as "not production".<b>Risk</b>The single most dangerous setting here. Unvalidated, it inflates DDP: every unmarked production defect is counted as caught before release. The report always flags it.' },
+  ]));
+
+  f.append(card('Importance scale — priority', [
+    { label: 'Critical values', path: 'importance.criticalValues', type: 'list', placeholder: '1' },
+    { label: 'High values', path: 'importance.highValues', type: 'list', placeholder: '2' },
+    { label: 'Medium values', path: 'importance.mediumValues', type: 'list', placeholder: '3' },
+    { label: 'Low values', path: 'importance.lowValues', type: 'list', placeholder: '4' },
+    { label: 'Tracker default', path: 'importance.defaultValue', placeholder: '2',
+      info: '<b>Why</b>Azure DevOps writes Priority 2 by itself. Recording the default lets completeness v1 tell an untouched field from a decision.' },
+  ]));
+
+  f.append(card('Importance scale — severity', [
+    { label: 'Critical values', path: 'importance.severity.criticalValues', type: 'list', placeholder: '1 - Critical' },
+    { label: 'High values', path: 'importance.severity.highValues', type: 'list', placeholder: '2 - High' },
+    { label: 'Medium values', path: 'importance.severity.mediumValues', type: 'list', placeholder: '3 - Medium' },
+    { label: 'Low values', path: 'importance.severity.lowValues', type: 'list', placeholder: '4 - Low' },
+    { label: 'Tracker default', path: 'importance.severity.defaultValue', placeholder: '3 - Medium' },
+  ], el('p', { className: 'hint', style: 'grid-column:1',
+    textContent: 'Severity and Priority rarely share a vocabulary ("1 - Critical" vs "1"). Folding them into one list silently misclassifies one of them, so they are configured separately.' })));
+
+  f.append(card('Resolutions', [
+    { label: 'Rejected', path: 'resolution.rejected', type: 'list', placeholder: 'Not a defect, By design' },
+    { label: 'Duplicate', path: 'resolution.duplicate', type: 'list' },
+    { label: 'Cannot reproduce', path: 'resolution.noRepro', type: 'list' },
+    { label: 'Fixed', path: 'resolution.fixed', type: 'list' },
+  ]));
+
+  f.append(card('Analysis scope', [
+    { label: 'Iteration path pattern', path: 'scope.iterationPathPattern', placeholder: '\\\\Iteration \\d+',
+      info: '<b>What</b>A regular expression. Use it when several products share one tracker project.<b>Careful</b>In JSON a backslash is doubled: "\\\\\\\\Iteration" in the file is the regex \\\\Iteration.<b>Check it</b>Run "scope" on the next page — a filter matching nothing produces an empty report, not an error.' },
+    { label: 'Area path pattern', path: 'scope.areaPathPattern' },
+    { label: 'Require non-empty fields', path: 'scope.requireFields', type: 'list',
+      info: '<b>Careful</b>Requiring a field discards every defect without it, and those are rarely a random sample. The report checks whether the excluded set differs from the kept one.' },
+  ]));
+
+  f.append(card('Thresholds', [
+    { label: 'Q1 completeness minimum', path: 'thresholds.completenessMin', type: 'number', step: '0.01' },
+    { label: 'Q2 bad report share max', path: 'thresholds.badReportShareMax', type: 'number', step: '0.01' },
+    { label: 'Q13 reopen rate max', path: 'thresholds.reopenRateMax', type: 'number', step: '0.01' },
+    { label: 'Defective fix max', path: 'thresholds.defectiveFixMax', type: 'number', step: '0.01' },
+    { label: 'Q16 flaky rate max', path: 'thresholds.flakyRateMax', type: 'number', step: '0.01' },
+    { label: 'TAS failure share max', path: 'thresholds.tasFailureShareMax', type: 'number', step: '0.01' },
+    { label: 'Field dominance max', path: 'thresholds.dominanceMax', type: 'number', step: '0.01',
+      info: '<b>What</b>Above this share of one value, a field stops discriminating and is refused.<b>Why</b>A field filled 100% with one value is not data, whatever the completeness says.' },
+    { label: 'Root cause fill minimum', path: 'thresholds.causeFillMin', type: 'number', step: '0.01' },
+    { label: 'Regression cycles max', path: 'thresholds.regressionCyclesMax', type: 'number' },
+    { label: 'Minimum cohort size', path: 'thresholds.minCohortSize', type: 'number',
+      info: '<b>Why</b>Percentages on tiny cohorts are noise. Below this the cohort is shown but kept out of the trend.' },
+    { label: 'DDP target', path: 'thresholds.ddpTarget', type: 'number', step: '0.01', hint: 'Leave empty until a baseline exists.' },
+    { label: 'Env marker disagreement max', path: 'thresholds.envMarkerDisagreementMax', type: 'number', step: '0.01' },
+  ]));
+
+  f.append(card('Fix targets (days)', [
+    { label: 'Critical', path: 'fixTargetDays.critical', type: 'number' },
+    { label: 'High', path: 'fixTargetDays.high', type: 'number' },
+    { label: 'Medium', path: 'fixTargetDays.medium', type: 'number' },
+    { label: 'Low', path: 'fixTargetDays.low', type: 'number' },
+  ]));
+
+  const releases = el('section', { className: 'card' }, [
+    el('h2', { textContent: 'Releases' }),
+    el('p', { className: 'small muted', textContent:
+      'One row per release. Cohort is derived from the version: 1.46.0 and 1.46.3 are the same cohort, one observation window. Add a row on release day, while the date is still accurate.' }),
+    tableEditor('releases',
+      [{ key: 'version', label: 'Version', placeholder: '1.46.0' },
+       { key: 'releasedAt', label: 'Released at (ISO)', placeholder: '2026-07-14T00:00:00.000Z' },
+       { key: 'klocChanged', label: 'KLOC changed', type: 'number' }],
+      { version: '', releasedAt: '' }),
+  ]);
+  f.append(releases);
+
+  const fields = el('section', { className: 'card' }, [
+    el('h2', { textContent: 'Mandatory attributes' }),
+    el('p', { className: 'small muted', textContent:
+      'Q1 is the minimum completeness across the fields marked mandatory. Marking a field your tracker does not have will drive Q1 to zero and make every downstream verdict wrong — mark it optional instead, and it stays visible as a named blind spot.' }),
+    tableEditor('fields',
+      [{ key: 'field', label: 'Field', placeholder: 'severity' },
+       { key: 'defaultValue', label: 'Tracker default' },
+       { key: 'mandatory', label: 'Mandatory', type: 'bool' }],
+      { field: '', defaultValue: null, mandatory: false }),
+  ]);
+  f.append(fields);
+
+  const sprints = el('section', { className: 'card' }, [
+    el('h2', { textContent: 'Sprints (fallback)' }),
+    el('p', { className: 'small muted', textContent: 'Only used when the tracker cannot supply iterations.' }),
+    tableEditor('sprints',
+      [{ key: 'name', label: 'Name' }, { key: 'startsAt', label: 'Starts (ISO)' }, { key: 'endsAt', label: 'Ends (ISO)' }],
+      { name: '', startsAt: '', endsAt: '' }),
+  ]);
+  f.append(sprints);
+
+  f.append(card('Manual inputs', [
+    { label: 'Risk register path', path: 'manualInputs.riskRegisterPath', placeholder: 'config/risk-register.json',
+      info: '<b>Feeds</b>Q4 product risk coverage, Q5 requirement coverage, gate rows G1 and G2.<b>Why a file</b>A risk register is a decision, not a measurement. The tool checks it exists and is complete; it never invents one.' },
+    { label: 'Gate decision path', path: 'manualInputs.gateDecisionPath', placeholder: 'config/gate-decision.json',
+      info: '<b>Feeds</b>Q8 residual risk, gate rows G9 and G10.<b>Rule</b>Shipping with an accepted risk is legitimate. Shipping with an unnamed one is not — and without this file there is no way to tell which happened.' },
+    { label: 'Cost model path', path: 'manualInputs.costOfQualityPath', placeholder: 'config/cost-model.json',
+      info: '<b>Feeds</b>Q17 cost of quality, and the average saving per defect caught before release. Even an estimate produces the business case.' },
+    { label: 'SLA availability', path: 'manualInputs.slaAvailability', type: 'number', step: '0.001' },
+  ]));
+}
+
+/* ---------- load / save ------------------------------------------------ */
+async function load() {
+  const res = await fetch('/api/profile');
+  const data = await res.json();
+  $('#profilePath').textContent = data.path;
+  if (data.error) {
+    $('#status').textContent = 'Profile is not valid JSON: ' + data.error;
+    $('#status').className = 'status err';
+  }
+  profile = data.profile ?? {};
+  render();
+  $('#raw').value = JSON.stringify(profile, null, 2);
+}
+
+$('#save').onclick = async () => {
+  let payload = profile;
+  if ($('#rawCard').style.display !== 'none') {
+    try { payload = JSON.parse($('#raw').value); }
+    catch (e) { $('#status').textContent = 'Invalid JSON: ' + e.message; $('#status').className = 'status err'; return; }
+    profile = payload;
+    render();
+  }
+  const res = await fetch('/api/profile', {
+    method: 'PUT',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify(payload),
+  });
+  const out = await res.json();
+  $('#status').textContent = out.saved ? 'Saved. Previous version kept as profile.json.bak' : ('Error: ' + out.error);
+  $('#status').className = out.saved ? 'status ok' : 'status err';
+};
+
+$('#reload').onclick = () => { $('#status').textContent = ''; load(); };
+
+$('#toggleJson').onclick = () => {
+  const card = $('#rawCard');
+  const showing = card.style.display !== 'none';
+  if (showing) {
+    try { profile = JSON.parse($('#raw').value); render(); } catch { /* keep form as-is */ }
+    card.style.display = 'none';
+    $('#form').style.display = '';
+    $('#toggleJson').textContent = 'Show raw JSON';
+  } else {
+    $('#raw').value = JSON.stringify(profile, null, 2);
+    card.style.display = '';
+    $('#form').style.display = 'none';
+    $('#toggleJson').textContent = 'Show form';
+  }
+};
+
+load();
+</script>
+</body>
+</html>

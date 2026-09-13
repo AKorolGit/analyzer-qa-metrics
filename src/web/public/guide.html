@@ -1,0 +1,244 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<title>Guide — qa-metrics</title>
+<link rel="stylesheet" href="/app.css">
+<style>
+  .lane { display: grid; grid-template-columns: 130px 1fr; gap: 14px; align-items: start; margin-bottom: 18px; }
+  .lane > .when { font-weight: 600; font-size: 13px; text-transform: uppercase; letter-spacing: .05em; color: var(--accent); padding-top: 3px; }
+  .lane code { background: #f0efea; padding: 1px 5px; border-radius: 3px; font-size: 12.5px; }
+  .lane pre { background: #23231f; color: #e8e6df; padding: 10px 13px; border-radius: 5px; font: 12.5px/1.6 var(--mono); margin: 6px 0 8px; }
+  .state { font-family: var(--mono); font-size: 11px; white-space: nowrap; }
+  .state.input { color: var(--warn); }
+  .state.missing { color: var(--fail); }
+  .warnbox { background: #f9f4e6; border-left: 3px solid var(--warn); padding: 12px 14px; border-radius: 0 4px 4px 0; margin-bottom: 12px; font-size: 14px; }
+</style>
+</head>
+<body>
+<header>
+  <h1>qa-metrics</h1>
+  <nav>
+    <a href="/">Configuration</a>
+    <a href="/run">Run &amp; reports</a>
+    <a href="/guide" class="active">Guide</a>
+  </nav>
+</header>
+
+<main>
+  <div class="tabs" id="tabs"></div>
+  <div id="body"></div>
+</main>
+
+<script type="module">
+const $ = (s) => document.querySelector(s);
+const el = (t, p = {}, k = []) => { const n = document.createElement(t); Object.assign(n, p); for (const c of k) if (c) n.append(c); return n; };
+
+/* ---------------------------------------------------------------- cadence */
+const CADENCE = [
+  {
+    when: 'Every release',
+    intro: 'Two of these are only accurate on the day. Three months later you are reconstructing them, and DDP depends on the release date being right.',
+    items: [
+      ['Add a row to <code>releases</code> in the profile', 'A version with no declared release date has no observation window, so its defects are dropped from DDP entirely.'],
+      ['Update <code>config/gate-decision.json</code>', 'Feeds Q8, G9, G10. Shipping with an accepted risk is legitimate; without the record there is no way to prove which happened.'],
+      ['Refresh outcomes in <code>config/risk-register.json</code>', 'Feeds Q4, Q5, G1, G2.'],
+    ],
+  },
+  {
+    when: 'Every sprint',
+    items: [
+      ['Check Q7 open critical defects', 'Gate input, and the cheapest early warning available.'],
+      ['Check the flaky rate from the latest runs', 'While nobody reads red, no other CI signal works. This is first in the action order for a reason.'],
+    ],
+  },
+  {
+    when: 'Monthly',
+    intro: 'The main measurement cycle.',
+    code: 'npm run collect\nnpm run doctor\nnpm run report',
+    items: [
+      ['Covers', 'Q9 DDP · Q10 field defects · Q13 reopen rate · Q16 regression capability · M4.3 change failure rate · M4.4 fix response · M4.6 backlog index · M4.9 planning lag.'],
+      ['<code>doctor</code> is not optional', 'It shows where each derived value came from. A shift there — cohorts falling back to dates instead of versions, importance falling back from severity to priority — changes what the numbers mean without changing how they look.'],
+    ],
+  },
+  {
+    when: 'Quarterly',
+    code: 'npm run fields\nnpm run report',
+    items: [
+      ['Covers', 'Q1–Q3 data trust · Q14 clusters · Q15 insertion activity · Q17 cost of quality. These move slowly; monthly readings would be noise.'],
+      ['<code>fields</code>', 'Have custom fields been renamed or added? A silently renamed field looks exactly like a field nobody fills in.'],
+      ['Re-baseline the XmR limits', "Wheeler's limits are computed from the data. After a real process change they need recomputing, or the new normal keeps signalling."],
+    ],
+  },
+  {
+    when: 'At setup',
+    intro: 'And again after any tracker or process change.',
+    code: 'npm run check\nnpm run fields\nnpm run scope',
+    items: [
+      ['<code>check</code>', 'Validates the profile and confirms the collection and project exist before you spend time collecting.'],
+      ['<code>scope</code>', 'Tests each filter rule independently against real values. A filter matching nothing produces an empty report, not an error.'],
+    ],
+  },
+  {
+    when: 'Never on a schedule',
+    items: [
+      ['Mutation testing, environment parity, code review analytics', 'These run <b>under a hypothesis</b> produced by a metric, not on a calendar. Each costs days of work and is worth it only when something specific points at it. Putting them on a quarterly cadence is the fastest way to turn diagnosis into ritual.'],
+    ],
+  },
+];
+
+/* ------------------------------------------------------------ what is missing */
+const NEEDS = [
+  ['Q4', 'Risk coverage', 'needs input', 'config/risk-register.json',
+   'A risk workshop or FMEA produces the first one in an afternoon. Score likelihood x impact 1-5 and link tests.'],
+  ['Q5', 'Requirement coverage', 'needs input', 'Requirement list in the same file',
+   'Cheapest durable version: tag the automation code (@req:US-481) and export the tags alongside the run — then this becomes collectable instead of manual.'],
+  ['Q8', 'Residual risk', 'needs input', 'config/gate-decision.json',
+   'A decision record, not a measurement. Written at the gate, one file per release.'],
+  ['Q17', 'Cost of quality', 'needs input', 'config/cost-model.json',
+   'Hours x rate per PAF category. An estimate is fine if labelled one — it still produces the business case.'],
+  ['Q16', 'Regression capability', 'needs input', 'qa-runs/*.json from the reporters',
+   'Register the Playwright or Cypress reporter in the runner and publish qa-runs/ as a pipeline artefact. No CI API can substitute: they report "failed" and nothing more.'],
+  ['Q6', 'Test execution status', 'not implemented', 'Per-test-case results tied to a release',
+   'Needs a TMS or per-case results in the run summary. Pipeline aggregates say how many tests ran, not whether the high-risk ones passed.'],
+  ['Q11', 'Reliability, MTTR, MTBF', 'not implemented', 'Monitoring or incident source',
+   'M4.3 already approximates the worst part from unplanned patches and rollbacks.'],
+  ['Q12', 'Performance and security', 'not implemented', 'Load test results, SAST/DAST output',
+   'Cheap once those run in the pipeline — they already emit machine-readable reports.'],
+  ['A1–A14', 'Code archaeology, SZZ', 'not implemented', 'Defect↔PR linkage ≥ 25% without skew',
+   'The tool checks this precondition (Q3) and blocks the conclusions until it holds. Make the defect↔PR link mandatory in the pipeline first — otherwise hotspots describe the teams that link carefully, not the risky code.'],
+  ['K1', 'Reconciliation', 'not implemented', 'Reconciliation points',
+   'Only applies when the product moves money or financial data between systems.'],
+  ['K6', 'RBT effectiveness', 'not implemented', 'Q4 plus the six questions of CTAL-TM 1.3.6',
+   'Partly derivable once the risk register exists.'],
+];
+
+const CANNOT_FIX = [
+  ['Env resting on the closed-world assumption',
+   'If most defects carry no production marker, DDP is an upper bound rather than a measurement. The Data quality tab prints the marker agreement table so the gap stays visible: two independent markers that disagree often mean the convention is not being followed, and the true production count is at least the marked one and possibly higher.'],
+  ['A field filled by the tracker rather than by a person',
+   'Severity at 100% completeness with one dominant value carries no information. Completeness v1 and the dominance check exist to catch exactly this, but the fix is a process one — the tool can only refuse to pretend.'],
+];
+
+const DELIBERATE = [
+  ['Real-time dashboard', 'The method names this as a trap: presenting a dashboard instead of decisions. A report that changes no decision has not worked.'],
+  ['Automatic M3 double sampling', 'Requires manual labelling of a sample. Only the arithmetic can be automated — Wilson intervals are already there — not the labelling.'],
+  ['LLM classification of root cause', 'Data policy: internal project data does not go to external APIs. Developers already fill root cause for high-priority defects.'],
+  ['Metrics about people', 'Author data stays inside module-level aggregates. Code and process, not individuals.'],
+];
+
+/* -------------------------------------------------------------- rendering */
+function cadenceTab() {
+  const wrap = el('div');
+  wrap.append(el('p', { className: 'small muted', style: 'margin-top:0', textContent:
+    'Metrics have different half-lives. Reading a quarterly metric monthly invites reacting to noise; reading a monthly one quarterly means finding out too late.' }));
+  for (const lane of CADENCE) {
+    const right = el('div');
+    if (lane.intro) right.append(el('p', { className: 'small muted', style: 'margin:0 0 8px', textContent: lane.intro }));
+    if (lane.code) right.append(el('pre', { textContent: lane.code }));
+    const ul = el('ul', { style: 'margin:0;padding-left:18px' });
+    for (const [what, why] of lane.items) {
+      ul.append(el('li', { style: 'margin-bottom:6px', innerHTML: `${what} — <span class="muted">${why}</span>` }));
+    }
+    right.append(ul);
+    wrap.append(el('div', { className: 'lane' }, [el('div', { className: 'when', textContent: lane.when }), right]));
+  }
+  return wrap;
+}
+
+function needsTab() {
+  const wrap = el('div');
+  wrap.append(el('p', { className: 'small muted', style: 'margin-top:0', textContent:
+    'Nothing here is hidden. Every row also appears in the report as an accepted blind spot — absent, not green. Four of them are unblocked by a file rather than by code.' }));
+
+  const t = el('table');
+  t.append(el('thead', { innerHTML: '<tr><th>Metric</th><th>State</th><th>What is missing</th><th>How to supply it</th></tr>' }));
+  const b = el('tbody');
+  for (const [id, name, state, missing, how] of NEEDS) {
+    b.append(el('tr', { innerHTML:
+      `<td><b>${id}</b> ${name}</td>` +
+      `<td class="state ${state === 'needs input' ? 'input' : 'missing'}">${state}</td>` +
+      `<td class="small">${missing}</td>` +
+      `<td class="small muted">${how}</td>` }));
+  }
+  t.append(b);
+  wrap.append(t);
+
+  wrap.append(el('h3', { style: 'font-size:13px;text-transform:uppercase;letter-spacing:.05em;color:var(--muted);margin-top:26px',
+    textContent: 'Two failure modes the tool cannot fix for you' }));
+  for (const [title, text] of CANNOT_FIX) {
+    wrap.append(el('div', { className: 'warnbox', innerHTML: `<b>${title}.</b> ${text}` }));
+  }
+
+  wrap.append(el('h3', { style: 'font-size:13px;text-transform:uppercase;letter-spacing:.05em;color:var(--muted);margin-top:26px',
+    textContent: 'Deliberately not built' }));
+  const t2 = el('table');
+  t2.append(el('thead', { innerHTML: '<tr><th>Thing</th><th>Reason</th></tr>' }));
+  const b2 = el('tbody');
+  for (const [thing, reason] of DELIBERATE) {
+    b2.append(el('tr', { innerHTML: `<td>${thing}</td><td class="small muted">${reason}</td>` }));
+  }
+  t2.append(b2);
+  wrap.append(t2);
+  return wrap;
+}
+
+function readingTab() {
+  const wrap = el('div');
+  wrap.append(el('p', { className: 'small muted', style: 'margin-top:0', textContent:
+    'The order matters more than it looks. Reading the diagnosis first is how a configuration artefact gets carried into a leads sync.' }));
+  const steps = [
+    ['1. Data quality tab', 'Before anything else. If the mandatory fields are unfit, every number downstream describes your reporting habits rather than product quality.'],
+    ['2. "What could not be computed" in each tab', 'On a first run this list is longer than the results, and that is the correct outcome — the method puts data trust first for exactly this reason.'],
+    ['3. Metric tables', 'A value with a degraded badge describes a direction, not a level. Say so out loud when quoting it.'],
+    ['4. Diagnosis tab, last', 'A finding marked <i>hypothesis</i> means at least one indicator sat mid-range or came from degraded input. It is a hypothesis with a first action, never a verdict.'],
+  ];
+  const ol = el('div');
+  for (const [title, text] of steps) {
+    ol.append(el('div', { className: 'lane' }, [
+      el('div', { className: 'when', textContent: title.split('.')[0] }),
+      el('div', {}, [el('p', { style: 'margin:0', innerHTML: `<b>${title.slice(3)}</b><br><span class="muted small">${text}</span>` })]),
+    ]));
+  }
+  wrap.append(ol);
+
+  wrap.append(el('h3', { style: 'font-size:13px;text-transform:uppercase;letter-spacing:.05em;color:var(--muted);margin-top:20px',
+    textContent: 'Before taking a number to management' }));
+  const ul = el('ul');
+  for (const line of [
+    'Does the Data quality tab support it? A metric computed on a degraded field is directional at best.',
+    'Is DDP involved? Check the marker agreement table first — DDP is only as good as the production classification under it.',
+    'Is there an XmR signal, or just movement? Reacting to routine variation is tampering, and it makes the process worse.',
+    'Would the first uncomfortable question hold? A configuration artefact presented as a finding costs more trust than saying nothing.',
+  ]) ul.append(el('li', { textContent: line }));
+  wrap.append(ul);
+  return wrap;
+}
+
+const TABS = [
+  { id: 'cadence', label: 'When to run what', render: cadenceTab },
+  { id: 'needs', label: 'What each metric still needs', render: needsTab },
+  { id: 'reading', label: 'How to read the report', render: readingTab },
+];
+let active = 'cadence';
+
+function draw() {
+  const tabs = $('#tabs');
+  const body = $('#body');
+  tabs.innerHTML = '';
+  body.innerHTML = '';
+  for (const t of TABS) {
+    const b = el('button', { textContent: t.label });
+    if (t.id === active) b.className = 'active';
+    b.onclick = () => { active = t.id; draw(); };
+    tabs.append(b);
+  }
+  const section = el('section', { className: 'card' });
+  section.append(TABS.find((t) => t.id === active).render());
+  body.append(section);
+}
+
+draw();
+</script>
+</body>
+</html>

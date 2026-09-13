@@ -1,0 +1,356 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<title>Run &amp; reports — qa-metrics</title>
+<link rel="stylesheet" href="/app.css">
+</head>
+<body>
+<header>
+  <h1>qa-metrics</h1>
+  <nav><a href="/">Configuration</a><a href="/run" class="active">Run &amp; reports</a></nav>
+  <span class="path" id="runInfo"></span>
+</header>
+
+<main>
+  <section class="card">
+    <h2>Commands</h2>
+    <p class="small muted" style="margin-top:-6px">
+      Only <b>collect</b> contacts the tracker and costs time. Everything else runs on the stored snapshot, so thresholds and formula versions can be re-tried as often as you like.
+    </p>
+    <div class="row" id="commands"></div>
+    <div class="row" style="margin-top:10px">
+      <span class="status" id="cmdStatus"></span>
+      <span class="spacer"></span>
+      <button id="clearOut">Clear output</button>
+    </div>
+    <pre class="console" id="out" style="margin-top:10px">Pick a command above. Suggested order on a fresh setup: check → fields → collect → scope → doctor → report.</pre>
+  </section>
+
+  <section class="card">
+    <div class="row">
+      <h2 style="margin:0">Report</h2>
+      <span class="spacer"></span>
+      <span class="small muted" id="reportMeta"></span>
+      <button id="refresh">Refresh</button>
+    </div>
+    <div class="tabs" id="tabs" style="margin-top:14px"></div>
+    <div id="tabBody"></div>
+  </section>
+</main>
+
+<script type="module">
+const $ = (s) => document.querySelector(s);
+const el = (t, p = {}, k = []) => { const n = document.createElement(t); Object.assign(n, p); for (const c of k) if (c) n.append(c); return n; };
+const esc = (s) => String(s).replace(/[&<>]/g, (c) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;' }[c]));
+const pct = (v) => (v === null || v === undefined ? '—' : (Math.abs(v) < 1 && v !== 0 ? (v * 100).toFixed(1) + '%' : Number(v).toFixed(2).replace(/\.00$/, '')));
+
+let docs = { metrics: {}, blocks: {} };
+let analysis = null;
+let activeTab = null;
+
+/* ---------- commands --------------------------------------------------- */
+const COMMANDS = [
+  ['check', 'Validate the profile and confirm the project exists. No data is read.'],
+  ['fields', 'List the fields this tracker project actually has, with fill rates.'],
+  ['collect', 'Pull defects, commits and deployments into a new immutable snapshot. This is the slow one.'],
+  ['scope', 'Show what the scope filter matches, rule by rule, against real values.'],
+  ['doctor', 'Diagnose the snapshot: which derivations resolved and which fell back.'],
+  ['releases', 'Propose a releases list from git tags and the versions seen on defects.'],
+  ['report', 'Render a new report file from the stored snapshot.'],
+];
+
+for (const [cmd, hint] of COMMANDS) {
+  const b = el('button', { textContent: cmd, title: hint });
+  if (cmd === 'report' || cmd === 'collect') b.className = 'primary';
+  b.onclick = () => run(cmd, b);
+  $('#commands').append(b);
+}
+
+async function run(cmd, button) {
+  const buttons = [...$('#commands').querySelectorAll('button')];
+  buttons.forEach((b) => { b.disabled = true; });
+  $('#cmdStatus').textContent = `running ${cmd}…`;
+  $('#cmdStatus').className = 'status';
+  $('#out').textContent = '';
+  try {
+    const res = await fetch('/api/run/' + cmd, { method: 'POST' });
+    const reader = res.body.getReader();
+    const dec = new TextDecoder();
+    for (;;) {
+      const { done, value } = await reader.read();
+      if (done) break;
+      $('#out').textContent += dec.decode(value, { stream: true });
+      $('#out').scrollTop = $('#out').scrollHeight;
+    }
+    const failed = /exit code [^0]/.test($('#out').textContent);
+    $('#cmdStatus').textContent = failed ? `${cmd} finished with errors` : `${cmd} finished`;
+    $('#cmdStatus').className = failed ? 'status err' : 'status ok';
+    if (cmd === 'report') await loadAnalysis();
+  } catch (e) {
+    $('#cmdStatus').textContent = 'Failed: ' + e.message;
+    $('#cmdStatus').className = 'status err';
+  } finally {
+    buttons.forEach((b) => { b.disabled = false; });
+    void button;
+  }
+}
+
+$('#clearOut').onclick = () => { $('#out').textContent = ''; $('#cmdStatus').textContent = ''; };
+$('#refresh').onclick = () => loadAnalysis();
+
+/* ---------- tooltip ---------------------------------------------------- */
+function metricInfo(id) {
+  const d = docs.metrics[id];
+  if (!d) return null;
+  const span = el('span', { className: 'info', textContent: 'i' });
+  span.append(el('span', {
+    className: 'tip',
+    innerHTML: `<b>What it measures</b>${esc(d.what)}<b>How it is computed</b>${esc(d.how)}<b>How to read it</b>${esc(d.read)}<b>Source</b>${esc(d.source)}`,
+  }));
+  return span;
+}
+
+const STATUS_CLASS = {
+  computed: 'computed', degraded: 'degraded',
+  'not-computable': 'blocked', 'needs-manual-input': 'blocked', planned: 'planned',
+};
+const STATUS_LABEL = {
+  computed: 'computed', degraded: 'degraded',
+  'not-computable': 'blocked', 'needs-manual-input': 'needs input', planned: 'planned',
+};
+
+/* ---------- metric table + per-tab summary ----------------------------- */
+function metricTable(metrics) {
+  const table = el('table');
+  table.append(el('thead', { innerHTML:
+    '<tr><th>Metric</th><th>Status</th><th>Value</th><th>Requirement</th><th>Outcome</th></tr>' }));
+  const body = el('tbody');
+  for (const m of metrics) {
+    const nameCell = el('td');
+    nameCell.append(el('span', { innerHTML: `<b>${esc(m.id)}</b> ${esc(m.name)}` }));
+    const tip = metricInfo(m.id);
+    if (tip) nameCell.append(tip);
+    if (m.caveats?.length) {
+      for (const c of m.caveats) {
+        nameCell.append(el('div', { className: 'small muted', style: 'margin-top:4px', textContent: '— ' + c }));
+      }
+    }
+    const row = el('tr', {}, [
+      nameCell,
+      el('td', { innerHTML: `<span class="pill ${STATUS_CLASS[m.status] ?? ''}">${STATUS_LABEL[m.status] ?? m.status}</span>` }),
+      el('td', { className: 'num', textContent: pct(m.value) }),
+      el('td', { className: 'small', textContent: m.requirement?.text || '—' }),
+      el('td', { className: 'small', textContent: m.requirement?.outcome === 'unknown' ? '—' : (m.requirement?.outcome ?? '—') }),
+    ]);
+    body.append(row);
+  }
+  table.append(body);
+  return table;
+}
+
+/**
+ * The point of the whole page: after every table, state plainly what could be
+ * computed, what could not and why, and what follows from the part that could.
+ * A table of numbers without this is a dashboard, and a dashboard is what the
+ * method warns against.
+ */
+function tabSummary(metrics) {
+  const ok = metrics.filter((m) => m.status === 'computed');
+  const soft = metrics.filter((m) => m.status === 'degraded');
+  const blocked = metrics.filter((m) => m.status !== 'computed' && m.status !== 'degraded');
+  const violated = [...ok, ...soft].filter((m) => m.requirement?.outcome === 'violated');
+
+  const wrap = el('div', { className: 'summary' });
+  wrap.append(el('h3', { textContent: 'What could be computed' }));
+  const okList = el('ul');
+  if (ok.length === 0 && soft.length === 0) {
+    okList.append(el('li', { className: 'muted', textContent: 'Nothing in this group could be computed.' }));
+  }
+  for (const m of ok) okList.append(el('li', { textContent: `${m.id} ${m.name} — ${pct(m.value)}` }));
+  for (const m of soft) {
+    okList.append(el('li', { innerHTML: `${esc(m.id)} ${esc(m.name)} — ${esc(pct(m.value))} <span class="muted">(degraded input: treat as directional)</span>` }));
+  }
+  wrap.append(okList);
+
+  wrap.append(el('h3', { textContent: 'What could not, and why' }));
+  const badList = el('ul');
+  if (blocked.length === 0) badList.append(el('li', { className: 'muted', textContent: 'Nothing blocked in this group.' }));
+  for (const m of blocked) {
+    badList.append(el('li', { innerHTML: `${esc(m.id)} ${esc(m.name)} — <span class="muted">${esc(m.caveats?.[0] ?? m.status)}</span>` }));
+  }
+  wrap.append(badList);
+
+  wrap.append(el('h3', { textContent: 'Conclusion' }));
+  const parts = [];
+  if (violated.length > 0) {
+    parts.push(`${violated.length} requirement${violated.length > 1 ? 's are' : ' is'} violated: ${violated.map((m) => m.id).join(', ')}.`);
+  } else if (ok.length + soft.length > 0) {
+    parts.push('No requirement in this group is violated on the data available.');
+  }
+  if (soft.length > 0) {
+    parts.push(`${soft.length} metric${soft.length > 1 ? 's rest' : ' rests'} on degraded input, so ${soft.length > 1 ? 'they describe' : 'it describes'} a direction rather than a level.`);
+  }
+  if (blocked.length > 0) {
+    parts.push(`${blocked.length} metric${blocked.length > 1 ? 's are' : ' is'} an accepted blind spot until the listed input exists — absent, not green.`);
+  }
+  if (parts.length === 0) parts.push('No metric in this group produced a result.');
+  wrap.append(el('div', { className: 'verdict', textContent: parts.join(' ') }));
+  return wrap;
+}
+
+/* ---------- other tabs ------------------------------------------------- */
+function diagnosisTab(d) {
+  const wrap = el('div');
+  wrap.append(el('p', { className: 'small muted', textContent:
+    'A finding is a hypothesis with a first action, never a verdict. "confirmed" means every indicator was computed on fit data; "hypothesis" means at least one value sat mid-range or came from a degraded input.' }));
+
+  if (!d.findings?.length) {
+    wrap.append(el('p', { className: 'muted', textContent: 'No combination rule fired — either the measured axes are healthy, or too few indicators could be classified.' }));
+  }
+  for (const f of d.findings ?? []) {
+    const card = el('div', { className: 'card', style: 'margin-bottom:10px' });
+    card.append(el('div', { innerHTML:
+      `<span class="sev ${esc(f.severity)}">${esc(f.severity)}</span> &nbsp;<b>${esc(f.title)}</b> <span class="muted small">— ${esc(f.confidence)}</span>` }));
+    card.append(el('p', { style: 'margin:8px 0', textContent: f.diagnosis }));
+    card.append(el('p', { style: 'margin:0 0 6px', innerHTML: `<b>First action.</b> ${esc(f.firstAction)}` }));
+    card.append(el('p', { className: 'small muted', style: 'margin:0', textContent: `Evidence: ${(f.evidence ?? []).join(' · ')} — ${f.source} (${f.ruleId})` }));
+    wrap.append(card);
+  }
+
+  wrap.append(el('h3', { style: 'font-size:13px;text-transform:uppercase;letter-spacing:.05em;color:var(--muted)', textContent: 'Signals vs noise (XmR)' }));
+  if (!d.signals?.length) {
+    wrap.append(el('p', { className: 'muted small', textContent: 'No Wheeler signal. Variation on the measured series is routine — reacting to it makes the process worse, not better.' }));
+  } else {
+    const t = el('table');
+    t.append(el('thead', { innerHTML: '<tr><th>Metric</th><th>Point</th><th>Rule</th><th>Direction</th></tr>' }));
+    const b = el('tbody');
+    for (const s of d.signals) for (const sig of s.chart.signals) {
+      b.append(el('tr', { innerHTML: `<td>${esc(s.metricId)} ${esc(s.metricName)}</td><td>${esc(sig.label)}</td><td class="small">${esc(sig.rule)}</td><td>${esc(sig.direction)}</td>` }));
+    }
+    t.append(b);
+    wrap.append(t);
+  }
+
+  wrap.append(el('h3', { style: 'font-size:13px;text-transform:uppercase;letter-spacing:.05em;color:var(--muted);margin-top:20px', textContent: 'Proposals (max 3 by design)' }));
+  if (!d.actions?.length) {
+    wrap.append(el('p', { className: 'muted small', textContent: 'No priority rule triggered.' }));
+  } else {
+    const list = el('ol');
+    for (const a of d.actions.slice(0, 3)) {
+      list.append(el('li', { innerHTML: `<b>${esc(a.action)}</b> — ${esc(a.rationale)} <span class="muted small">(${esc(a.trigger)})</span>` }));
+    }
+    wrap.append(list);
+    wrap.append(el('p', { className: 'small muted', textContent:
+      'Each needs an owner and an expected effect recorded before the change, so the next measurement is a hypothesis test rather than a retrospective justification.' }));
+  }
+  return wrap;
+}
+
+function dataTab(a) {
+  const wrap = el('div');
+  const s = a.scope ?? {};
+  wrap.append(el('p', { className: 'small muted', textContent:
+    'Read this tab before any other. Data fitness decides which metrics are allowed to run at all — a number computed on unfit data is worse than no number.' }));
+
+  wrap.append(el('h3', { style: 'font-size:13px;text-transform:uppercase;color:var(--muted)', textContent: 'Scope' }));
+  wrap.append(el('p', { className: 'small', textContent: `${s.included ?? '?'} of ${s.totalBefore ?? '?'} collected defects analysed. Filter: ${s.description ?? 'none'}` }));
+  for (const w of s.biasWarnings ?? []) wrap.append(el('p', { className: 'small', innerHTML: `<b>Selection bias.</b> ${esc(w)}` }));
+
+  const m = a.envAgreement;
+  if (m) {
+    wrap.append(el('h3', { style: 'font-size:13px;text-transform:uppercase;color:var(--muted);margin-top:18px', textContent: 'Production markers' }));
+    wrap.append(el('p', { className: 'small', textContent:
+      `both agree ${m.both} · tag only ${m.tagOnly} · title only ${m.titleOnly} · unmarked ${m.neither} — disagreement ${(m.disagreementRate * 100).toFixed(0)}%` }));
+    for (const w of m.warnings ?? []) wrap.append(el('p', { className: 'small', innerHTML: `<b>${esc(w)}</b>` }));
+  }
+
+  for (const [title, key] of [['Env resolved from', 'envSources'], ['Importance resolved from', 'impSources'], ['Cohort resolved from', 'cohortSources']]) {
+    const src = a[key];
+    if (!src) continue;
+    wrap.append(el('h3', { style: 'font-size:13px;text-transform:uppercase;color:var(--muted);margin-top:18px', textContent: title }));
+    const t = el('table');
+    const b = el('tbody');
+    for (const [name, n] of Object.entries(src).sort((x, y) => y[1] - x[1])) {
+      b.append(el('tr', { innerHTML: `<td>${esc(name)}</td><td class="num">${n}</td>` }));
+    }
+    t.append(b);
+    wrap.append(t);
+  }
+
+  const fit = a.fitness;
+  if (fit) {
+    wrap.append(el('h3', { style: 'font-size:13px;text-transform:uppercase;color:var(--muted);margin-top:18px', textContent: 'Field fitness (ISO/IEC 25012)' }));
+    const t = el('table');
+    t.append(el('thead', { innerHTML: '<tr><th>Field</th><th>Mandatory</th><th>Complete</th><th>Verdict</th><th>Reasons</th></tr>' }));
+    const b = el('tbody');
+    for (const f of [...fit.fields].sort((x, y) => x.completeness - y.completeness)) {
+      b.append(el('tr', { innerHTML:
+        `<td>${esc(f.field)}</td><td>${f.mandatory ? 'yes' : ''}</td><td class="num">${(f.completeness * 100).toFixed(0)}%</td>` +
+        `<td><span class="pill ${f.verdict === 'usable' ? 'computed' : f.verdict === 'degraded' ? 'degraded' : 'blocked'}">${esc(f.verdict)}</span></td>` +
+        `<td class="small muted">${esc(f.reasons.join('; ') || '—')}</td>` }));
+    }
+    t.append(b);
+    wrap.append(t);
+  }
+  return wrap;
+}
+
+/* ---------- tabs ------------------------------------------------------- */
+function drawTabs() {
+  const tabsEl = $('#tabs');
+  const body = $('#tabBody');
+  tabsEl.innerHTML = '';
+  body.innerHTML = '';
+
+  if (!analysis) {
+    body.append(el('p', { className: 'muted', textContent: 'No report yet. Run collect, then report.' }));
+    return;
+  }
+  const metrics = analysis.metrics ?? [];
+  const blocks = [...new Set(metrics.map((m) => m.block))].sort();
+  const tabs = [
+    { id: '__data', label: 'Data quality' },
+    ...blocks.map((b) => ({ id: b, label: b })),
+    { id: '__diag', label: 'Diagnosis' },
+  ];
+  if (!tabs.some((t) => t.id === activeTab)) activeTab = tabs[0].id;
+
+  for (const t of tabs) {
+    const b = el('button', { textContent: t.label });
+    if (t.id === activeTab) b.className = 'active';
+    if (docs.blocks[t.id]) b.title = docs.blocks[t.id];
+    b.onclick = () => { activeTab = t.id; drawTabs(); };
+    tabsEl.append(b);
+  }
+
+  if (activeTab === '__data') { body.append(dataTab(analysis)); return; }
+  if (activeTab === '__diag') { body.append(diagnosisTab(analysis.diagnosis ?? {})); return; }
+
+  const group = metrics.filter((m) => m.block === activeTab);
+  if (docs.blocks[activeTab]) {
+    body.append(el('p', { className: 'small muted', style: 'margin-top:0', textContent: docs.blocks[activeTab] }));
+  }
+  body.append(metricTable(group));
+  body.append(tabSummary(group));
+}
+
+/* ---------- load ------------------------------------------------------- */
+async function loadAnalysis() {
+  const [d, a] = await Promise.all([
+    fetch('/api/docs').then((r) => r.json()),
+    fetch('/api/analysis').then((r) => r.json()),
+  ]);
+  docs = d;
+  analysis = a.analysis;
+  if (analysis) {
+    $('#runInfo').textContent = analysis.runId ?? '';
+    $('#reportMeta').textContent = `${analysis.file ?? ''} · generated ${String(analysis.generatedAt ?? '').slice(0, 16).replace('T', ' ')}`;
+  }
+  drawTabs();
+}
+
+loadAnalysis();
+</script>
+</body>
+</html>

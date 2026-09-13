@@ -2,9 +2,9 @@
   "name": "eo-qa-metrics",
   "tracker": {
     "kind": "azure-devops",
-    "project": "ECOHZOnline",
-    "organization": "ecohz",
-    "baseUrl": "https://ecohz.visualstudio.com",
+    "project": "Project_Name",
+    "organization": "org_name",
+    "baseUrl": "https://org_name.visualstudio.com",
     "fieldOverrides": {
       "rootCause": "Custom.RootCause2",
       "severity": "Microsoft.VSTS.Common.Severity",
@@ -17,7 +17,7 @@
   },
   "vcs": {
     "kind": "local-git",
-    "path": "/Users/akorol/Downloads/ECOHZOnline",
+    "path": "/Users/akorol/Downloads/Project_Name",
     "branch": "master"
   },
   "period": {

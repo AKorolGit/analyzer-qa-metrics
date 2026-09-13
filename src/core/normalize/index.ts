@@ -206,7 +206,7 @@ export function cohortOf(version: string): { cohort: string; isPatch: boolean } 
 /** A version string looks like 1.46.3, not like "Sprint 227". */
 const looksLikeVersion = (v: string | null): boolean => v !== null && /^\d+(\.\d+)+/.test(v.trim());
 
-/** Matches "Sprint 227" against "ECOHZOnline\ECOHZONE\Sprint 227" and vice versa. */
+/** Matches "Sprint 227" against "Main_Project_Name\Sub_Project\Sprint 227" and vice versa. */
 function findSprintByName(name: string, sprints: readonly Sprint[]): Sprint | undefined {
   const needle = lower(name);
   const tail = (s: string): string => lower(s.split('\\').pop() ?? s);

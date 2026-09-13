@@ -7,8 +7,11 @@
   "scripts": {
     "typecheck": "tsc --noEmit",
 
+    "ui": "tsx src/web/server.ts",
+
     "check": "tsx --env-file=.env src/cli/index.ts check",
     "fields": "tsx --env-file=.env src/cli/index.ts fields",
+    "releases": "tsx --env-file=.env src/cli/index.ts releases",
     "scope": "tsx --env-file=.env src/cli/index.ts scope",
     "doctor": "tsx --env-file=.env src/cli/index.ts doctor",
 
@@ -19,8 +22,7 @@
     "runs": "tsx --env-file=.env src/cli/index.ts runs",
     "full": "npm run check && npm run collect && npm run report",
 
-    "demo": "tsx src/cli/index.ts run --profile config/profile.demo.json",
-    "releases": "tsx --env-file=.env src/cli/index.ts releases"
+    "demo": "tsx src/cli/index.ts run --profile config/profile.demo.json"
   },
   "dependencies": {
     "tsx": "^4.19.2",
