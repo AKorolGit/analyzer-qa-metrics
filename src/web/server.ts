@@ -163,6 +163,24 @@ async function handle(req: IncomingMessage, res: ServerResponse): Promise<void> 
     return sendJson(res, 200, { analysis: await latestAnalysis() });
   }
 
+  if (path === '/api/runs' && req.method === 'GET') {
+    const file = resolve(DATA, 'runs.jsonl');
+    if (!existsSync(file)) return sendJson(res, 200, { runs: [] });
+    const lines = (await readFile(file, 'utf8')).split('\n').filter((l) => l.trim() !== '');
+    // Newest first: the last thing you generated is the thing you are comparing against.
+    const runs = lines
+      .map((l) => {
+        try {
+          return JSON.parse(l) as Record<string, unknown>;
+        } catch {
+          return null;
+        }
+      })
+      .filter((r): r is Record<string, unknown> => r !== null)
+      .reverse();
+    return sendJson(res, 200, { runs });
+  }
+
   if (path === '/api/docs' && req.method === 'GET') {
     return sendJson(res, 200, { metrics: METRIC_DOCS, blocks: BLOCK_DOCS });
   }

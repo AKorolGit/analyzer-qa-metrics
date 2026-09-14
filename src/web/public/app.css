@@ -176,3 +176,16 @@ pre.console {
 .arrayrow { display: grid; grid-template-columns: 1fr 1fr 32px; gap: 6px; margin-bottom: 6px; }
 .fieldrow { display: grid; grid-template-columns: 1fr 1fr 90px 32px; gap: 6px; margin-bottom: 6px; align-items: center; }
 .fieldrow label { font-size: 12px; color: var(--muted); display: flex; gap: 5px; align-items: center; }
+
+/* Snapshot grouping in the run history. The boundary between snapshots is the
+   difference between "the project changed" and "I changed a setting", so it is
+   drawn rather than described. */
+table.history tr.snapshot td {
+  background: #f4f4f0;
+  border-top: 2px solid var(--line);
+  border-bottom: 1px solid var(--line);
+  padding: 8px;
+  font-size: 12.5px;
+}
+table.history tr.snapshot b { font-family: var(--mono); font-size: 12px; }
+table.history .delta { color: var(--accent); font-size: 11px; font-family: var(--mono); }

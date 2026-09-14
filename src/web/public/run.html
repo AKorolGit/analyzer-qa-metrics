@@ -58,6 +58,7 @@ const COMMANDS = [
   ['doctor', 'Diagnose the snapshot: which derivations resolved and which fell back.'],
   ['releases', 'Propose a releases list from git tags and the versions seen on defects.'],
   ['report', 'Render a new report file from the stored snapshot.'],
+  ['runs', 'Print the run ledger to the console. The History tab below shows the same thing as a table.'],
 ];
 
 for (const [cmd, hint] of COMMANDS) {
@@ -296,6 +297,94 @@ function dataTab(a) {
   return wrap;
 }
 
+let runs = [];
+
+/**
+ * The run ledger, grouped by snapshot.
+ *
+ * Grouping is the whole point rather than decoration. Two reports built from
+ * the same snapshot differ only because the profile changed - a threshold, a
+ * window, a formula version. Two reports from different snapshots differ
+ * because the project moved. Putting those in one flat list invites reading a
+ * setting change as an improvement, so the boundary is drawn on screen instead
+ * of explained in a footnote.
+ */
+function historyTab() {
+  const wrap = el('div');
+  wrap.append(el('p', { className: 'small muted', style: 'margin-top:0', textContent:
+    'Every report is a separate file; nothing is ever overwritten. Reports are grouped by the snapshot they were rendered from.' }));
+
+  if (runs.length === 0) {
+    wrap.append(el('p', { className: 'muted', textContent: 'No reports generated yet. Run collect, then report.' }));
+    return wrap;
+  }
+
+  // runs arrive newest first; consecutive entries share a snapshot.
+  const groups = [];
+  for (const r of runs) {
+    const last = groups[groups.length - 1];
+    if (last !== undefined && last.runId === r.runId) last.rows.push(r);
+    else groups.push({ runId: r.runId, rows: [r] });
+  }
+
+  const t = el('table', { className: 'history' });
+  t.append(el('thead', { innerHTML:
+    '<tr><th>Generated</th><th>Q1</th><th>Prod marked</th><th>Marker disagreement</th>' +
+    '<th>Findings</th><th>Critical</th></tr>' }));
+  const b = el('tbody');
+
+  for (const g of groups) {
+    const first = g.rows[0];
+    const scope = `${first.defectsInScope ?? '?'}/${first.defectsCollected ?? '?'} defects`;
+    const many = g.rows.length > 1;
+    b.append(el('tr', { className: 'snapshot', innerHTML:
+      `<td colspan="6"><b>Snapshot ${esc(String(g.runId ?? 'unknown'))}</b> · ${esc(scope)} · ` +
+      `${g.rows.length} report${many ? 's' : ''}` +
+      (many
+        ? ' <span class="muted">— same data. Any difference below is a profile change: a threshold, the window W, or a formula version. Not the project.</span>'
+        : '') +
+      '</td>' }));
+
+    g.rows.forEach((r, i) => {
+      // Compare only inside the group; across snapshots the defect set itself
+      // changed, so a delta would mix two different causes into one number.
+      const prev = g.rows[i + 1];
+      const delta = (now, before, digits = 0, scale = 1) => {
+        if (prev === undefined || typeof now !== 'number' || typeof before !== 'number') return '';
+        const d = (now - before) * scale;
+        if (Math.abs(d) < Math.pow(10, -digits) / 2) return '';
+        return ` <span class="delta">${d > 0 ? '+' : ''}${d.toFixed(digits)}</span>`;
+      };
+      const q1 = typeof r.q1 === 'number' ? `${(r.q1 * 100).toFixed(0)}%` : '—';
+      const dis = typeof r.envMarkerDisagreement === 'number'
+        ? `${(r.envMarkerDisagreement * 100).toFixed(0)}%` : '—';
+
+      b.append(el('tr', { innerHTML:
+        `<td class="small">${esc(String(r.generatedAt ?? '').slice(0, 16).replace('T', ' '))}</td>` +
+        `<td class="num">${q1}${delta(r.q1, prev?.q1, 0, 100)}</td>` +
+        `<td class="num">${esc(String(r.prodMarked ?? '—'))}</td>` +
+        `<td class="num">${dis}</td>` +
+        `<td class="num">${esc(String(r.findings ?? 0))}${delta(r.findings, prev?.findings)}</td>` +
+        `<td class="num">${esc(String(r.criticalFindings ?? 0))}${delta(r.criticalFindings, prev?.criticalFindings)}</td>` }));
+    });
+  }
+  t.append(b);
+  wrap.append(t);
+
+  wrap.append(el('p', { className: 'small muted', style: 'margin-top:10px', textContent:
+    `${runs.length} report(s) from ${groups.length} snapshot(s). A delta is shown only against the row directly below it, inside the same snapshot.` }));
+
+  wrap.append(el('div', { className: 'summary' }, [
+    el('h3', { textContent: 'What to watch here' }),
+    el('ul', { innerHTML:
+      '<li><b>Q1 falling across snapshots</b> — reporting discipline is slipping, and every metric downstream inherits it.</li>' +
+      '<li><b>Prod marked flat while defects grow</b> — the production convention is not being followed, so DDP drifts further from reality each month.</li>' +
+      '<li><b>Marker disagreement</b> — the honest measure of whether a convention change actually took. It should fall after the team agrees on one marker.</li>' +
+      '<li><b>Findings moving inside one snapshot</b> — that is you, not the project. Know which it was before quoting the number.</li>' }),
+  ]));
+  return wrap;
+}
+
 /* ---------- tabs ------------------------------------------------------- */
 function drawTabs() {
   const tabsEl = $('#tabs');
@@ -313,9 +402,12 @@ function drawTabs() {
     { id: '__data', label: 'Data quality' },
     ...blocks.map((b) => ({ id: b, label: b })),
     { id: '__diag', label: 'Diagnosis' },
+    { id: '__hist', label: 'History' },
   ];
   if (!tabs.some((t) => t.id === activeTab)) activeTab = tabs[0].id;
 
+  // The tab bar is drawn before any early return below. Returning first would
+  // remove the navigation that got you to the tab you just opened.
   for (const t of tabs) {
     const b = el('button', { textContent: t.label });
     if (t.id === activeTab) b.className = 'active';
@@ -326,6 +418,7 @@ function drawTabs() {
 
   if (activeTab === '__data') { body.append(dataTab(analysis)); return; }
   if (activeTab === '__diag') { body.append(diagnosisTab(analysis.diagnosis ?? {})); return; }
+  if (activeTab === '__hist') { body.append(historyTab()); return; }
 
   const group = metrics.filter((m) => m.block === activeTab);
   if (docs.blocks[activeTab]) {
@@ -337,12 +430,14 @@ function drawTabs() {
 
 /* ---------- load ------------------------------------------------------- */
 async function loadAnalysis() {
-  const [d, a] = await Promise.all([
+  const [d, a, h] = await Promise.all([
     fetch('/api/docs').then((r) => r.json()),
     fetch('/api/analysis').then((r) => r.json()),
+    fetch('/api/runs').then((r) => r.json()),
   ]);
   docs = d;
   analysis = a.analysis;
+  runs = h.runs ?? [];
   if (analysis) {
     $('#runInfo').textContent = analysis.runId ?? '';
     $('#reportMeta').textContent = `${analysis.file ?? ''} · generated ${String(analysis.generatedAt ?? '').slice(0, 16).replace('T', ' ')}`;

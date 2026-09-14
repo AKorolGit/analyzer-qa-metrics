@@ -1,10 +1,10 @@
 {
-  "name": "qa-metrics-analyzer",
+  "name": "eo-qa-metrics",
   "tracker": {
     "kind": "azure-devops",
-    "project": "Project_Name",
-    "organization": "org_name",
-    "baseUrl": "https://org_name.visualstudio.com",
+    "project": "ECOHZOnline",
+    "organization": "ecohz",
+    "baseUrl": "https://ecohz.visualstudio.com",
     "fieldOverrides": {
       "rootCause": "Custom.RootCause2",
       "severity": "Microsoft.VSTS.Common.Severity",
@@ -17,14 +17,14 @@
   },
   "vcs": {
     "kind": "local-git",
-    "path": "/Users/akorol/Downloads/Project_Name",
+    "path": "/Users/akorol/Downloads/ECOHZOnline",
     "branch": "master"
   },
   "period": {
     "from": "2025-09-01T00:00:00.000Z",
     "to": "2026-09-01T00:00:00.000Z"
   },
-  "windowDays": 90,
+  "windowDays": 30,
   "versions": {
     "tDet": "v2",
     "env": "v2",
@@ -35,25 +35,48 @@
   },
   "env": {
     "prodFieldValues": [],
-    "prodTags": ["Prod"],
-    "prodTitlePrefixes": ["Prod", "PROD"],
+    "prodTags": [
+      "Prod"
+    ],
+    "prodTitlePrefixes": [
+      "Prod",
+      "PROD"
+    ],
     "titlePrefixTokens": 2,
-    "deliveryTags": ["Hotfix"],
+    "deliveryTags": [
+      "Hotfix"
+    ],
     "prodCreators": [],
     "prodKeywords": [],
     "closedWorld": true
   },
   "importance": {
-    "criticalValues": ["1"], 
-    "highValues": ["2"],
-    "mediumValues": ["3"], 
-    "lowValues": ["4"], 
+    "criticalValues": [
+      "1"
+    ],
+    "highValues": [
+      "2"
+    ],
+    "mediumValues": [
+      "3"
+    ],
+    "lowValues": [
+      "4"
+    ],
     "defaultValue": "2",
     "severity": {
-      "criticalValues": ["1 - Critical"], 
-      "highValues": ["2 - High"],
-      "mediumValues": ["3 - Medium"], 
-      "lowValues": ["4 - Low"],
+      "criticalValues": [
+        "1 - Critical"
+      ],
+      "highValues": [
+        "2 - High"
+      ],
+      "mediumValues": [
+        "3 - Medium"
+      ],
+      "lowValues": [
+        "4 - Low"
+      ],
       "defaultValue": "3 - Medium"
     }
   },
@@ -148,11 +171,26 @@
     "low": 90
   },
   "releases": [
-    { "version": "1.42.0", "releasedAt": "2025-10-17" },
-    { "version": "1.43.0", "releasedAt": "2025-11-27" },
-    { "version": "1.44.0", "releasedAt": "2026-03-17" },
-    { "version": "1.45.0", "releasedAt": "2026-04-16" },
-    { "version": "1.46.0", "releasedAt": "2026-07-14" }
+    {
+      "version": "1.42.0",
+      "releasedAt": "2025-10-17"
+    },
+    {
+      "version": "1.43.0",
+      "releasedAt": "2025-11-27"
+    },
+    {
+      "version": "1.44.0",
+      "releasedAt": "2026-03-17"
+    },
+    {
+      "version": "1.45.0",
+      "releasedAt": "2026-04-16"
+    },
+    {
+      "version": "1.46.0",
+      "releasedAt": "2026-07-14"
+    }
   ],
   "sprints": [
     {
