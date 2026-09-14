@@ -406,3 +406,4 @@ Kan, *Metrics and Models in Software Quality Engineering* ·
 Wheeler, *Understanding Variation* · DORA ·
 Luo et al. (2014) flaky tests · Rubin (1976) missing data · Tenenbein (1970)
 double sampling.
+# analyzer-qa-metrics
