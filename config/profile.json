@@ -1,5 +1,5 @@
 {
-  "name": "eo-qa-metrics",
+  "name": "qa-metrics-analyzer",
   "tracker": {
     "kind": "azure-devops",
     "project": "Project_Name",

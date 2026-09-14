@@ -59,7 +59,7 @@ export function wasEdited(d: RawDefect, field: string): boolean {
  * Does the title START with a production marker?
  *
  * Only the first few tokens are considered. Titles here look like
- * "EO. Not possible to send an invite" - a product code first, then the
+ * "Not possible to send an invite" - a product code first, then the
  * subject - so the marker may be the first or second token, never the tenth.
  */
 export function titleHasProdPrefix(title: string, profile: ProjectProfile): boolean {
