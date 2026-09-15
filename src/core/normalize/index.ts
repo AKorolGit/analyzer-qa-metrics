@@ -4,14 +4,22 @@ import type { FieldChange, Iso, RawDefect, Release, Sprint } from '../../domain/
 export type Env = 'prod' | 'pre-release' | 'unknown';
 export type ImpLevel = 'critical' | 'high' | 'medium' | 'low' | 'unknown';
 
+/** Which independent signals a defect carries. Used to measure convention adherence. */
+export interface EnvMarkers {
+  readonly tag: boolean;
+  readonly prodPrefix: string | null;
+  readonly preReleasePrefix: string | null;
+}
+
 export interface NormalizedDefect {
   readonly raw: RawDefect;
   /** M2 */
   readonly env: Env;
   readonly envSource: string;
   readonly envVersion: string;
-  /** Which independent markers fired - used to measure convention adherence. */
-  readonly envMarkers: { readonly tag: boolean; readonly titlePrefix: boolean };
+  readonly envMarkers: EnvMarkers;
+  /** True when the environment came from a record, not from the default. */
+  readonly envMeasured: boolean;
   /** Imp (D7) */
   readonly imp: ImpLevel;
   readonly impSource: string;
@@ -56,60 +64,113 @@ export function wasEdited(d: RawDefect, field: string): boolean {
 }
 
 /**
- * Does the title START with a production marker?
+ * Does the title START with one of these markers?
  *
- * Only the first few tokens are considered. Titles here look like
- * "Not possible to send an invite" - a product code first, then the
- * subject - so the marker may be the first or second token, never the tenth.
+ * Only the first few tokens are considered. Titles look like
+ * "Stage. SC. Cannot log in" - environment first, then product - so a marker
+ * sits in the first or second position, never the tenth. Searching the whole
+ * string would read "could not reproduce on prod-like env" as production.
  */
-export function titleHasProdPrefix(title: string, profile: ProjectProfile): boolean {
-  const prefixes = profile.env.prodTitlePrefixes;
-  if (prefixes.length === 0) return false;
-  const take = profile.env.titlePrefixTokens ?? 2;
+export function titleHasPrefix(
+  title: string,
+  prefixes: readonly string[],
+  tokenCount: number,
+): string | null {
+  if (prefixes.length === 0) return null;
   const tokens = title
     .split(/[^\p{L}\p{N}]+/u)
     .filter((t) => t !== '')
-    .slice(0, take)
+    .slice(0, tokenCount)
     .map(lower);
-  return prefixes.some((p) => tokens.includes(lower(p)));
+  return prefixes.find((p) => tokens.includes(lower(p))) ?? null;
 }
 
-/** M2. Detection environment, first matching version wins, versions OR-able. */
+export function readEnvMarkers(d: RawDefect, profile: ProjectProfile): EnvMarkers {
+  const rules = profile.env;
+  const tokens = rules.titlePrefixTokens ?? 2;
+  return {
+    tag: hasAny(d.tags, rules.prodTags),
+    prodPrefix: titleHasPrefix(d.title, rules.prodTitlePrefixes, tokens),
+    preReleasePrefix: titleHasPrefix(d.title, rules.preReleaseTitlePrefixes ?? [], tokens),
+  };
+}
+
+/**
+ * M2. Detection environment.
+ *
+ * Three outcomes matter, not two. A defect can be known-production, known
+ * pre-release, or unclassified - and the third is not the same as the second
+ * even though both stay out of the field-defect count. Collapsing them is how
+ * DDP ends up resting on an assumption nobody stated.
+ */
 export function resolveEnv(
   d: RawDefect,
   profile: ProjectProfile,
-): { env: Env; source: string; version: string; markers: { tag: boolean; titlePrefix: boolean } } {
+): { env: Env; source: string; version: string; markers: EnvMarkers; measured: boolean } {
   const rules = profile.env;
   const wanted = profile.versions.env;
   const order: readonly string[] = ['v1', 'v2', 'v3', 'v4'];
   const allowed = order.slice(0, order.indexOf(wanted) + 1);
-
-  const tag = hasAny(d.tags, rules.prodTags);
-  const titlePrefix = titleHasProdPrefix(d.title, profile);
-  const markers = { tag, titlePrefix };
+  const markers = readEnvMarkers(d, profile);
 
   if (allowed.includes('v1') && d.environmentField !== null) {
     const isProd = rules.prodFieldValues.some((v) => lower(v) === lower(d.environmentField ?? ''));
-    return { env: isProd ? 'prod' : 'pre-release', source: `field:${d.environmentField}`, version: 'v1', markers };
+    return {
+      env: isProd ? 'prod' : 'pre-release',
+      source: `field:${d.environmentField}`,
+      version: 'v1',
+      markers,
+      measured: true,
+    };
   }
-  // v2: deliberate human markers. Either one is sufficient; both are recorded
-  // so the report can show how consistently the convention is followed.
-  if (allowed.includes('v2') && (tag || titlePrefix)) {
-    const source = tag && titlePrefix ? 'tag+title-prefix' : tag ? 'tag-only' : 'title-prefix-only';
-    return { env: 'prod', source, version: 'v2', markers };
+
+  if (allowed.includes('v2') && (markers.tag || markers.prodPrefix !== null)) {
+    const source =
+      markers.tag && markers.prodPrefix !== null
+        ? 'tag+title-prefix'
+        : markers.tag
+          ? 'tag-only'
+          : 'title-prefix-only';
+    return { env: 'prod', source, version: 'v2', markers, measured: true };
   }
+
+  // An explicit non-production prefix is a recorded fact, not a fallback.
+  // Keeping it distinct from the default below is the whole point: it turns
+  // "we assume this was not production" into "someone wrote down where it was".
+  if (allowed.includes('v2') && markers.preReleasePrefix !== null) {
+    return {
+      env: 'pre-release',
+      source: `title-prefix:${markers.preReleasePrefix}`,
+      version: 'v2',
+      markers,
+      measured: true,
+    };
+  }
+
   if (allowed.includes('v3') && d.createdBy !== null && hasAny([d.createdBy], rules.prodCreators)) {
-    return { env: 'prod', source: 'creator', version: 'v3', markers };
+    return { env: 'prod', source: 'creator', version: 'v3', markers, measured: true };
   }
   if (allowed.includes('v4') && rules.prodKeywords.length > 0) {
     const text = textOf(d);
     const hit = rules.prodKeywords.find((k) => text.includes(lower(k)));
-    if (hit !== undefined) return { env: 'prod', source: `keyword:${hit}`, version: 'v4', markers };
+    if (hit !== undefined) {
+      return { env: 'prod', source: `keyword:${hit}`, version: 'v4', markers, measured: false };
+    }
   }
   if (rules.closedWorld) {
-    return { env: 'pre-release', source: 'closed-world-assumption', version: wanted, markers };
+    // Where a pre-release convention exists, "no prefix" carries meaning - it
+    // is the default environment. Where it does not, this is a bare assumption
+    // and the report says so.
+    const hasConvention = (rules.preReleaseTitlePrefixes ?? []).length > 0;
+    return {
+      env: 'pre-release',
+      source: hasConvention ? 'no-prefix (default environment)' : 'closed-world-assumption',
+      version: wanted,
+      markers,
+      measured: false,
+    };
   }
-  return { env: 'unknown', source: 'no-signal', version: wanted, markers };
+  return { env: 'unknown', source: 'no-signal', version: wanted, markers, measured: false };
 }
 
 const byDate = (a: FieldChange, b: FieldChange): number => Date.parse(a.at) - Date.parse(b.at);
@@ -167,7 +228,10 @@ export function resolveImp(
     if (severityWasSet(d, sevScale)) {
       return { imp: classifyImp(d.severity, sevScale ?? profile.importance), source: 'severity(set)' };
     }
-    return { imp: classifyImp(priorityAtFirstTriage(d), profile.importance), source: 'priority@triage(severity untouched)' };
+    return {
+      imp: classifyImp(priorityAtFirstTriage(d), profile.importance),
+      source: 'priority@triage(severity untouched)',
+    };
   }
   return { imp: classifyImp(d.severity, sevScale ?? profile.importance), source: 'severity' };
 }
@@ -206,7 +270,7 @@ export function cohortOf(version: string): { cohort: string; isPatch: boolean } 
 /** A version string looks like 1.46.3, not like "Sprint 227". */
 const looksLikeVersion = (v: string | null): boolean => v !== null && /^\d+(\.\d+)+/.test(v.trim());
 
-/** Matches "Sprint 227" against "Main_Project_Name\Sub_Project\Sprint 227" and vice versa. */
+/** Matches "Sprint 227" against "Main_Project\Sub_Project\Sprint 227" and vice versa. */
 function findSprintByName(name: string, sprints: readonly Sprint[]): Sprint | undefined {
   const needle = lower(name);
   const tail = (s: string): string => lower(s.split('\\').pop() ?? s);
@@ -356,6 +420,7 @@ export function normalize(
       envSource: envRes.source,
       envVersion: envRes.version,
       envMarkers: envRes.markers,
+      envMeasured: envRes.measured,
       imp: impRes.imp,
       impSource: impRes.source,
       tDet: tDetRes.tDet,
@@ -378,19 +443,31 @@ export function normalize(
 }
 
 /**
- * Agreement between the two independent production markers.
+ * How defects were classified, and how consistently the conventions were applied.
  *
- * This is cheap validation of the closed-world assumption. If the tag and the
- * title prefix disagree often, neither is a reliable Env signal, and DDP - which
- * is entirely built on Env - carries that error into the leads sync.
+ * Cheap validation of the closed-world assumption. Two numbers matter most:
+ * `measuredShare` - how much of the classification came from a record rather
+ * than from the default - and `disagreementRate` between the two independent
+ * production markers. DDP is built entirely on this classification, so its
+ * trustworthiness is capped here.
  */
 export interface EnvMarkerAgreement {
+  /** Production defects carrying both a tag and a title prefix. */
   readonly both: number;
   readonly tagOnly: number;
   readonly titleOnly: number;
+  /** Everything not classified as production. */
   readonly neither: number;
   readonly markedTotal: number;
   readonly disagreementRate: number;
+  /** Non-production defects classified by an explicit prefix ("Stage.", "QA."). */
+  readonly preReleaseByPrefix: number;
+  /** Non-production defects classified only because nothing was recorded. */
+  readonly byDefault: number;
+  /** Production marker and pre-release prefix on the same defect. */
+  readonly conflicts: number;
+  /** Share of all defects classified from a record rather than from the default. */
+  readonly measuredShare: number;
   readonly warnings: readonly string[];
 }
 
@@ -401,31 +478,58 @@ export function envMarkerAgreement(
   let both = 0;
   let tagOnly = 0;
   let titleOnly = 0;
+  let preReleaseByPrefix = 0;
+  let byDefault = 0;
+  let conflicts = 0;
+
   for (const d of defects) {
-    const { tag, titlePrefix } = d.envMarkers;
-    if (tag && titlePrefix) both += 1;
-    else if (tag) tagOnly += 1;
-    else if (titlePrefix) titleOnly += 1;
+    const m = d.envMarkers;
+    // A production marker together with a pre-release prefix is a contradiction
+    // in the record itself. Counted separately: production wins, but a human
+    // has to decide which one was right.
+    if ((m.tag || m.prodPrefix !== null) && m.preReleasePrefix !== null) conflicts += 1;
+
+    if (d.env === 'prod') {
+      if (m.tag && m.prodPrefix !== null) both += 1;
+      else if (m.tag) tagOnly += 1;
+      else titleOnly += 1;
+    } else if (d.envMeasured) {
+      preReleaseByPrefix += 1;
+    } else {
+      byDefault += 1;
+    }
   }
+
   const markedTotal = both + tagOnly + titleOnly;
   const disagreement = markedTotal === 0 ? 0 : (tagOnly + titleOnly) / markedTotal;
+  const measuredShare =
+    defects.length === 0 ? 0 : (markedTotal + preReleaseByPrefix) / defects.length;
   const max = profile.thresholds.envMarkerDisagreementMax ?? 0.2;
+  const hasConvention = (profile.env.preReleaseTitlePrefixes ?? []).length > 0;
   const warnings: string[] = [];
 
   if (markedTotal === 0) {
-    warnings.push(
-      'No defect carries either production marker. Env rests entirely on the closed-world assumption, so DDP is an upper bound, not a measurement.',
-    );
+    warnings.push('No defect carries a production marker. DDP is an upper bound, not a measurement.');
   } else if (disagreement > max) {
     warnings.push(
-      `The two production markers disagree on ${(disagreement * 100).toFixed(0)}% of marked defects (${tagOnly} tag-only, ${titleOnly} title-only). The convention is not applied consistently, so the true production count is at least ${markedTotal} and possibly higher - DDP is correspondingly optimistic.`,
+      `The two production markers disagree on ${(disagreement * 100).toFixed(0)}% of production defects (${tagOnly} tag-only, ${titleOnly} title-only). The convention is applied inconsistently, so the true production count is at least ${markedTotal} and possibly higher - DDP is correspondingly optimistic.`,
     );
   }
-  if (titleOnly > 0 && tagOnly === 0) {
+  if (!hasConvention) {
     warnings.push(
-      `${titleOnly} defect(s) are marked by title only and never tagged. The tag is the machine-readable signal; consider making it the convention and the title prefix a convenience.`,
+      'No pre-release prefixes configured, so every unmarked defect is classified by assumption rather than by record. If the team marks defects found outside development, list those prefixes in the profile and this becomes a measurement.',
+    );
+  } else if (measuredShare < 0.5) {
+    warnings.push(
+      `Only ${(measuredShare * 100).toFixed(0)}% of defects carry an environment marker. The convention exists but is not followed often enough for DDP to rest on it.`,
     );
   }
+  if (conflicts > 0) {
+    warnings.push(
+      `${conflicts} defect(s) carry both a production marker and a pre-release prefix. The record contradicts itself; production wins, but these need a human decision.`,
+    );
+  }
+
   return {
     both,
     tagOnly,
@@ -433,6 +537,10 @@ export function envMarkerAgreement(
     neither: defects.length - markedTotal,
     markedTotal,
     disagreementRate: disagreement,
+    preReleaseByPrefix,
+    byDefault,
+    conflicts,
+    measuredShare,
     warnings,
   };
 }

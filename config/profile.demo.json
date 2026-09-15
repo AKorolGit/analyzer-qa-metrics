@@ -20,23 +20,13 @@
     "cohort": "v2"
   },
   "env": {
-    "prodFieldValues": [
-      "Production",
-      "Prod",
-      "Live"
-    ],
-    "prodTags": [
-      "Prod",
-      "Production",
-      "Customer"
-    ],
-    "deliveryTags": [
-      "Hotfix",
-      "Patch"
-    ],
-    "prodCreators": [
-      "support"
-    ],
+    "prodFieldValues": [],
+    "prodTags": ["Prod"],
+    "prodTitlePrefixes": ["Prod"],
+    "preReleaseTitlePrefixes": ["Stage", "QA"],
+    "titlePrefixTokens": 2,
+    "deliveryTags": ["Hotfix"],
+    "prodCreators": [],
     "prodKeywords": [],
     "closedWorld": true
   },

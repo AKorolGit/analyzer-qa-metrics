@@ -1,5 +1,5 @@
 {
-  "name": "eo-qa-metrics",
+  "name": "ez-qa-metrics",
   "tracker": {
     "kind": "azure-devops",
     "project": "ECOHZOnline",
@@ -9,20 +9,21 @@
       "rootCause": "Custom.RootCause2",
       "severity": "Microsoft.VSTS.Common.Severity",
       "versionDetected": "Microsoft.VSTS.Build.FoundIn",
-      "versionCorrected": "Custom.Version"
+      "versionCorrected": "Custom.SCVersion",
+      "component": "Custom.Modules" 
     }
   },
   "scope": {
-    "iterationPathPattern": "\\\\Iteration \\d+"
+    "iterationPathPattern": "\\\\ECOHZONE\\\\Sprint \\d+"
   },
   "vcs": {
     "kind": "local-git",
-    "path": "/Users/akorol/Downloads/ECOHZOnline",
-    "branch": "master"
+    "path": "/Users/akorol/SupplyChain",
+    "branch": "main"
   },
   "period": {
-    "from": "2025-09-01T00:00:00.000Z",
-    "to": "2026-09-01T00:00:00.000Z"
+    "to": "2026-09-01T00:00:00.000Z",
+    "from": "2026-05-01T00:00:00.000Z"
   },
   "windowDays": 30,
   "versions": {
@@ -35,17 +36,11 @@
   },
   "env": {
     "prodFieldValues": [],
-    "prodTags": [
-      "Prod"
-    ],
-    "prodTitlePrefixes": [
-      "Prod",
-      "PROD"
-    ],
+    "prodTags": ["Prod"],
+    "prodTitlePrefixes": ["Prod"],
+    "preReleaseTitlePrefixes": ["Stage", "QA"],
     "titlePrefixTokens": 2,
-    "deliveryTags": [
-      "Hotfix"
-    ],
+    "deliveryTags": ["Hotfix"],
     "prodCreators": [],
     "prodKeywords": [],
     "closedWorld": true
@@ -172,24 +167,12 @@
   },
   "releases": [
     {
-      "version": "1.42.0",
-      "releasedAt": "2025-10-17"
-    },
-    {
-      "version": "1.43.0",
-      "releasedAt": "2025-11-27"
-    },
-    {
-      "version": "1.44.0",
-      "releasedAt": "2026-03-17"
-    },
-    {
-      "version": "1.45.0",
-      "releasedAt": "2026-04-16"
-    },
-    {
-      "version": "1.46.0",
+      "version": "4.7.0",
       "releasedAt": "2026-07-14"
+    },
+    {
+      "version": "4.6.0",
+      "releasedAt": "2026-05-19"
     }
   ],
   "sprints": [

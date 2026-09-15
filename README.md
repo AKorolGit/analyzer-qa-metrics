@@ -108,8 +108,8 @@ An override naming a field this instance does not define is reported as a
 ### Code source: local clone or GitHub API
 
 ```jsonc
-"vcs": { "kind": "local-git", "path": "/path/to/clone", "branch": "master" }  // recommended
-"vcs": { "kind": "github", "owner": "org", "repo": "repo", "branch": "master" }
+"vcs": { "kind": "local-git", "path": "/path/to/clone", "branch": "main" }  // recommended
+"vcs": { "kind": "github", "owner": "org", "repo": "repo", "branch": "main" }
 "vcs": { "kind": "none" }
 ```
 

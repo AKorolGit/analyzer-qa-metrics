@@ -41,25 +41,38 @@ export interface EnvRules {
   readonly prodTags: readonly string[];
   /**
    * v2: markers at the START of the title, e.g. "Prod. Cannot send invite".
-   * Checked against the first few tokens only - a keyword search over the whole
+   * Only the first few tokens are checked - a keyword search over the whole
    * description would turn "could not reproduce on prod-like env" into a
    * production defect, which is precisely the error this avoids.
    */
   readonly prodTitlePrefixes: readonly string[];
-  /** How many leading tokens of the title may carry the marker. Default 2. */
+  /**
+   * Title prefixes that positively mark a NON-production environment
+   * ("Stage.", "QA.").
+   *
+   * These change closedWorld from a guess into a rule. Where a team prefixes
+   * every defect found outside the development environment, an absent prefix
+   * is itself evidence: it says "found on dev", not "nobody recorded where
+   * this came from". Without them the classification comes out the same but
+   * the report cannot tell a measured pre-release defect from an unrecorded
+   * one, and has to caveat DDP accordingly.
+   */
+  readonly preReleaseTitlePrefixes?: readonly string[];
+  /** How many leading tokens of the title may carry a marker. Default 2. */
   readonly titlePrefixTokens?: number;
   /** Delivery-channel tags that must NOT be read as detection activity (e.g. Hotfix). */
   readonly deliveryTags: readonly string[];
   /** v3: creator accounts / channels that only file production issues. */
   readonly prodCreators: readonly string[];
-  /** v4: keywords anywhere in the text. Lowest reliability - use as a last resort. */
+  /** v4: keywords anywhere in the text. Lowest reliability - a last resort. */
   readonly prodKeywords: readonly string[];
   /**
    * Closed-world assumption: "no signal => not prod".
-   * Setting this true without validation is the single most dangerous choice in
-   * the whole pipeline; the report always flags it. Two independent markers
-   * (tag and title prefix) make the assumption checkable - see the agreement
-   * table in section 0 of the report.
+   *
+   * On its own this is the most dangerous setting in the pipeline, because an
+   * unmarked production defect silently counts as caught before release. It
+   * stops being an assumption once preReleaseTitlePrefixes are configured and
+   * the report shows the convention is actually followed.
    */
   readonly closedWorld: boolean;
 }

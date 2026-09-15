@@ -1,47 +1,52 @@
 {
-  "name": "my-project",
+  "name": "ez-qa-metrics",
   "tracker": {
     "kind": "azure-devops",
-    "organization": "my-org",
-    "project": "My Project",
-    "baseUrl": "https://dev.azure.com"
+    "project": "ECOHZOnline",
+    "organization": "ecohz",
+    "baseUrl": "https://ecohz.visualstudio.com",
+    "fieldOverrides": {
+      "rootCause": "Custom.RootCause2",
+      "severity": "Microsoft.VSTS.Common.Severity",
+      "versionDetected": "Microsoft.VSTS.Build.FoundIn",
+      "versionCorrected": "Custom.SCVersion"
+    }
+  },
+  "scope": {
+    "iterationPathPattern": "\\\\ECOHZONE\\\\Sprint \\d+",
+    "areaPathPattern": "ECOHZOnline\\ECOHZONE"
   },
   "vcs": {
     "kind": "local-git",
-    "path": "/absolute/path/to/your/clone",
+    "path": "/Users/akorol/SupplyChain",
     "branch": "main"
   },
   "period": {
-    "from": "2025-09-01T00:00:00.000Z",
-    "to": "2026-09-01T00:00:00.000Z"
+    "to": "2026-09-01T00:00:00.000Z",
+    "from": "2025-01-01T00:00:00.000Z"
   },
-  "windowDays": 90,
+  "windowDays": 30,
   "versions": {
     "tDet": "v2",
     "env": "v2",
     "imp": "v2",
     "module": "v2",
     "completeness": "v1",
-    "cohort": "v2"
+    "cohort": "v3"
   },
   "env": {
-    "prodFieldValues": [
-      "Production",
-      "Prod",
-      "Live"
-    ],
+    "prodFieldValues": [],
     "prodTags": [
-      "Prod",
-      "Production",
-      "Customer"
+      "Prod"
     ],
+    "prodTitlePrefixes": [
+      "Prod"
+    ],
+    "titlePrefixTokens": 2,
     "deliveryTags": [
-      "Hotfix",
-      "Patch"
+      "Hotfix"
     ],
-    "prodCreators": [
-      "support"
-    ],
+    "prodCreators": [],
     "prodKeywords": [],
     "closedWorld": true
   },
@@ -58,7 +63,22 @@
     "lowValues": [
       "4"
     ],
-    "defaultValue": "2"
+    "defaultValue": "2",
+    "severity": {
+      "criticalValues": [
+        "1 - Critical"
+      ],
+      "highValues": [
+        "2 - High"
+      ],
+      "mediumValues": [
+        "3 - Medium"
+      ],
+      "lowValues": [
+        "4 - Low"
+      ],
+      "defaultValue": "3 - Medium"
+    }
   },
   "resolution": {
     "rejected": [
@@ -152,16 +172,24 @@
   },
   "releases": [
     {
-      "version": "1.45.0",
-      "releasedAt": "2026-01-15T00:00:00.000Z",
-      "klocChanged": 4.2,
-      "storiesDelivered": 18
+      "version": "4.7.0",
+      "releasedAt": "2026-07-14"
     },
     {
-      "version": "1.46.0",
-      "releasedAt": "2026-02-19T00:00:00.000Z",
-      "klocChanged": 3.1,
-      "storiesDelivered": 14
+      "version": "4.6",
+      "releasedAt": ""
+    },
+    {
+      "version": "4.5",
+      "releasedAt": ""
+    },
+    {
+      "version": "4.4",
+      "releasedAt": ""
+    },
+    {
+      "version": "4.3",
+      "releasedAt": ""
     }
   ],
   "sprints": [

@@ -46,7 +46,7 @@ const F = {
   rootCause: 'Custom.RootCause',
   foundIn: 'Microsoft.VSTS.Build.FoundIn',
   integrationBuild: 'Microsoft.VSTS.Build.IntegrationBuild',
-  environment: 'Custom.Environment',
+  environment: '',
   component: '',
 } as const;
 
